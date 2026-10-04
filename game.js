@@ -2696,12 +2696,12 @@ const undoBtn = document.getElementById('undoBtn');
 function pushUndo(x, y, z, before, after) {
   undoStack.push({ x, y, z, before, after });
   if (undoStack.length > 30) undoStack.shift();
-  undoBtn.hidden = false;
+  undoBtn.classList.remove('empty');
 }
 function undo() {
   if (!playing || bagOpen || dead) return;
   const u = undoStack.pop();
-  undoBtn.hidden = !undoStack.length;
+  undoBtn.classList.toggle('empty', !undoStack.length);
   if (!u) return;
   if (world[idx(u.x, u.y, u.z)] !== u.after) { showToast('Block itu sudah berubah - tak boleh undur'); return; }
   const broke = u.after === AIR;
@@ -2724,7 +2724,7 @@ function undo() {
   setTimeout(() => beep(390, 0.08, 'triangle', 0.07), 70);
   showToast(broke ? 'Undur: block dipulihkan' : 'Undur: block dibuang');
 }
-undoBtn.onclick = undo;
+undoBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); undo(); });
 
 // Pratonton: bayang block yang dipegang di tempat ia akan diletak
 const ghostMat = new THREE.MeshBasicMaterial({ map: atlas, vertexColors: true, transparent: true, opacity: 0.5, depthWrite: false });
