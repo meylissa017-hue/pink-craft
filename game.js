@@ -463,7 +463,13 @@ function loadSave() {
       if (!Number.isInteger(index) || index < 0 || index >= W * D * H || !Number.isInteger(id) || (id !== AIR && !BLOCKS[id])) throw new Error('Block tidak sah');
     }
     if (s.player && (!Array.isArray(s.player) || s.player.length !== 5 || !s.player.every(Number.isFinite))) s.player = null;
-    if (s.size !== 2) widenEdits(s.edits);
+    if (s.size !== 2) {
+      // Simpan salinan simpanan lama sekali, sebelum ditukar ke format dunia besar
+      try {
+        if (!localStorage.getItem(SAVE_KEY + '-sebelum-dunia-besar')) localStorage.setItem(SAVE_KEY + '-sebelum-dunia-besar', localStorage.getItem(SAVE_KEY));
+      } catch (e) { /* tiada ruang untuk salinan: teruskan */ }
+      widenEdits(s.edits);
+    }
     return s;
   } catch (e) { saveWarning = 'Simpanan tidak dapat dibaca. Dunia sementara dibuka; simpanan asal tidak akan ditindih.'; }
   return null;
