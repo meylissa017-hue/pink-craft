@@ -10,7 +10,10 @@ const EYE = 1.62;
 // ---------- Block ----------
 const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, LOG = 4, LEAVES = 5, BRICK = 6, PLANKS = 7,
   HEART = 8, CANDY = 9, GLOW = 10, GLASS = 11, BEDROCK = 12,
-  SAND = 13, WATER = 14, FIELD = 15, LINE = 16, NET = 17, TRAMP = 18, PALM = 19, RAINBOW = 20, YELLOW = 21, BLUE = 22;
+  SAND = 13, WATER = 14, FIELD = 15, LINE = 16, NET = 17, TRAMP = 18, PALM = 19, RAINBOW = 20, YELLOW = 21, BLUE = 22,
+  CRYSTAL_ORE = 23, GOLD_ORE = 24, GEM_ORE = 25, CRYSTAL_BLOCK = 26, GOLD_BLOCK = 27, CHEST = 28, SAND_X = 29;
+// Item yang digugurkan oleh bijih (ditakrif di sini kerana BLOCKS merujuknya)
+const KRISTAL = 113, EMAS = 114, PERMATA = 115;
 
 // tiles: [atas, bawah, sisi] — nombor petak dalam atlas 4x4; hard: saat untuk pecahkan dengan tangan; tool: alat yang mempercepat
 const BLOCKS = {
@@ -38,11 +41,20 @@ const BLOCKS = {
   [RAINBOW]: { name: 'Block Pelangi', hard: 0.8, tiles: [22, 22, 22] },
   [YELLOW]: { name: 'Block Kuning', hard: 0.8, tiles: [23, 23, 23] },
   [BLUE]: { name: 'Block Biru', hard: 0.8, tiles: [24, 24, 24] },
+  // drop: item yang jatuh bila dipecahkan (kalau bukan block itu sendiri)
+  [CRYSTAL_ORE]: { name: 'Bijih Kristal', hard: 2, tool: 'pick', tiles: [25, 25, 25], drop: KRISTAL },
+  [GOLD_ORE]: { name: 'Bijih Emas', hard: 2, tool: 'pick', tiles: [26, 26, 26], drop: EMAS },
+  [GEM_ORE]: { name: 'Bijih Permata Pelangi', hard: 2, tool: 'pick', tiles: [27, 27, 27], drop: PERMATA },
+  [CRYSTAL_BLOCK]: { name: 'Block Kristal', hard: 1, tool: 'pick', tiles: [28, 28, 28], glow: true },
+  [GOLD_BLOCK]: { name: 'Block Emas', hard: 1, tool: 'pick', tiles: [29, 29, 29] },
+  // chest: bila dipukul atau ditekan, pecah dan menggugurkan harta
+  [CHEST]: { name: 'Peti Harta', hard: 0.5, tiles: [31, 31, 30], chest: true },
+  [SAND_X]: { name: 'Pasir Bertanda X', hard: 0.5, tool: 'shovel', tiles: [32, 14, 14], drop: SAND },
 };
 const HOTBAR = [GRASS, STONE, BRICK, PLANKS, HEART, CANDY, GLOW, GLASS, LEAVES];
 
 // ---------- Alat (item yang tak boleh diletak) ----------
-const PICK_W = 100, AXE_W = 101, SHOVEL_W = 102, PICK_S = 103, AXE_S = 104, SHOVEL_S = 105;
+const PICK_W = 100, AXE_W = 101, SHOVEL_W = 102, PICK_S = 103, AXE_S = 104, SHOVEL_S = 105, PICK_C = 106;
 const APPLE = 110, CAKE = 111, JELLY = 112;
 // speed: berapa kali lebih laju pada block yang sesuai; uses: ketahanan
 const ITEMS = {
@@ -52,6 +64,32 @@ const ITEMS = {
   [PICK_S]: { name: 'Beliung Batu', tool: 'pick', speed: 4, uses: 100, head: '8a74a0' },
   [AXE_S]: { name: 'Kapak Batu', tool: 'axe', speed: 4, uses: 100, head: '8a74a0' },
   [SHOVEL_S]: { name: 'Penyodok Batu', tool: 'shovel', speed: 4, uses: 100, head: '8a74a0' },
+  [PICK_C]: { name: 'Beliung Kristal', tool: 'pick', speed: 6, uses: 250, head: 'ff7fe0' },
+  // Bahan dari bijih dan peti harta
+  [KRISTAL]: {
+    name: 'Kristal Pink',
+    pixel: (x, y) => {
+      const d = Math.abs(x - 7.5) * 1.3 + Math.abs(y - 8);
+      if (d > 7) return null;
+      return d > 5.6 ? 'e060c8' : x < 7 && y < 8 ? 'ffd0f4' : 'ff7fe0';
+    },
+  },
+  [EMAS]: {
+    name: 'Emas',
+    pixel: (x, y) => {
+      if (y < 6 || y > 11 || x < 2 + (11 - y) * 0.5 || x > 13 - (11 - y) * 0.5) return null;
+      return y === 6 ? 'fff2a8' : y === 11 ? 'd9a300' : 'ffd633';
+    },
+  },
+  [PERMATA]: {
+    name: 'Permata Pelangi',
+    pixel: (x, y) => {
+      const d = Math.abs(x - 7.5) + Math.abs(y - 8) * 1.2;
+      if (d > 7) return null;
+      if (d > 5.8) return 'ffffff';
+      return ['ff6b6b', 'ffb347', 'ffe14f', '6de38a', '6fb7ff', 'c58cff'][Math.max(0, Math.min(5, Math.floor((x - 2) / 2)))];
+    },
+  },
   // food: berapa mata lapar dipulihkan (bar penuh = 20)
   [JELLY]: {
     name: 'Jeli Manis', food: 3,
@@ -131,6 +169,9 @@ const HEART_MAP = [
   '..HHHHHHHHHHHH..', '...HHHHHHHHHH...', '....HHHHHHHH....', '.....HHHHHH.....',
   '......HHHH......', '.......HH.......', '................', '................',
 ];
+// Batu dengan tompok bijih berwarna (tompok 2x2 piksel)
+const oreTile = (seed, a, b) => (x, y) => (hash(x >> 1, y >> 1, seed) > 0.78
+  ? ((x + y) % 2 ? a : b) : pick(x, y, 4, ['b9a3c9', 'b9a3c9', 'a892ba', 'c7b4d6']));
 const pick = (x, y, s, arr) => arr[Math.floor(hash(x, y, s) * arr.length)];
 const edge = (x, y) => x === 0 || y === 0 || x === 15 || y === 15;
 const grassTop = (x, y) => pick(x, y, 1, ['ff9fd0', 'ff9fd0', 'ffb1d9', 'ff8cc6']);
@@ -188,8 +229,22 @@ const TILES = [
   (x, y) => ['ff6b6b', 'ffb347', 'ffe14f', '6de38a', '6fb7ff', 'c58cff'][Math.floor(y * 6 / 16)],
   (x, y) => (edge(x, y) ? 'f0c020' : pick(x, y, 11, ['ffe14f', 'ffe14f', 'ffd633'])),
   (x, y) => (edge(x, y) ? '4a90e0' : pick(x, y, 12, ['6fb7ff', '6fb7ff', '5aa6f0'])),
+  oreTile(13, 'ff7fe0', 'ffd0f4'),
+  oreTile(14, 'ffd633', 'fff2a8'),
+  oreTile(15, '6fb7ff', 'ff6b9b'),
+  (x, y) => (edge(x, y) ? 'e060c8' : (x + y) % 6 < 2 ? 'ffd0f4' : (x - y + 16) % 6 < 2 ? 'ff9be6' : 'ff7fe0'),
+  (x, y) => (edge(x, y) ? 'd9a300' : (x + y) % 7 === 0 ? 'fff2a8' : 'ffd633'),
+  (x, y) => {
+    if (x >= 7 && x <= 8 && y >= 5 && y <= 9) return 'fff2a8';
+    if (y === 6 || y === 7) return 'ffd633';
+    if (edge(x, y)) return '5e3d22';
+    return y % 5 === 4 ? '7d5230' : '9b6a3c';
+  },
+  (x, y) => (edge(x, y) ? '5e3d22' : x === 7 || x === 8 ? 'ffd633' : y % 5 === 4 ? '7d5230' : '9b6a3c'),
+  (x, y) => (x >= 3 && x <= 12 && (Math.abs(x - y) <= 1 || Math.abs(x + y - 15) <= 1)
+    ? 'ff4f5e' : pick(x, y, 8, ['ffe9c4', 'ffe9c4', 'ffdcae', 'fff2d6'])),
 ];
-const ATLAS_ROWS = 8; // atlas 4 lajur x 8 baris petak 16x16
+const ATLAS_ROWS = 16; // atlas 4 lajur x 16 baris petak 16x16
 
 function makeAtlas() {
   const c = document.createElement('canvas');
@@ -329,6 +384,49 @@ function generateWorld(seed) {
     for (let dy = 0; dy < th; dy++) world[idx(x, y + dy, z)] = LOG;
   }
   if (GEN === 2) buildLandmarks(seed);
+  generateOres(seed);
+  placeChests(seed);
+}
+// Urat bijih: berjalan rawak dari satu titik, menggantikan batu sahaja
+function placeVeins(rnd, id, count, yMax, size) {
+  for (let i = 0; i < count; i++) {
+    let x = 1 + Math.floor(rnd() * (W - 2)), z = 1 + Math.floor(rnd() * (D - 2)), y = 1 + Math.floor(rnd() * yMax);
+    for (let j = 0; j < size; j++) {
+      if (inBounds(x, y, z) && world[idx(x, y, z)] === STONE) world[idx(x, y, z)] = id;
+      const dir = Math.floor(rnd() * 6);
+      if (dir === 0) x++; else if (dir === 1) x--; else if (dir === 2) y++; else if (dir === 3) y--; else if (dir === 4) z++; else z--;
+    }
+  }
+}
+// Kristal paling banyak dan cetek; emas lebih dalam; permata pelangi paling jarang dan paling dalam
+function generateOres(seed) {
+  const rnd = mulberry32(seed + 41);
+  placeVeins(rnd, CRYSTAL_ORE, 110, 20, 5);
+  placeVeins(rnd, GOLD_ORE, 55, 12, 4);
+  placeVeins(rnd, GEM_ORE, 22, 6, 3);
+}
+function placeChests(seed) {
+  const rnd = mulberry32(seed + 51);
+  // Peti di atas tanah: satu berhampiran tempat mula, selebihnya bertaburan
+  for (let i = 0, made = 0; i < 300 && made < 9; i++) {
+    const near = made === 0;
+    const x = near ? Math.floor(W / 2 - 8 + rnd() * 16) : 3 + Math.floor(rnd() * (W - 6));
+    const z = near ? Math.floor(D / 2 - 8 + rnd() * 16) : 3 + Math.floor(rnd() * (D - 6));
+    if (GEN === 2 && ZONES.some((zn) => zoneDist(zn, x, z) < 2)) continue;
+    const y = surfaceY(x, z), below = world[idx(x, y - 1, z)];
+    if (y >= H - 1 || (below !== GRASS && below !== SAND)) continue;
+    world[idx(x, y, z)] = CHEST;
+    made++;
+  }
+  // Peti tertanam di pantai: tanda X pada pasir, peti dua block di bawahnya
+  if (GEN !== 2) return;
+  for (let i = 0, made = 0; i < 300 && made < 4; i++) {
+    const x = 18 + Math.floor(rnd() * 20), z = 5 + Math.floor(rnd() * (D - 10)), y = surfaceY(x, z);
+    if (y < 5 || world[idx(x, y - 1, z)] !== SAND) continue;
+    world[idx(x, y - 1, z)] = SAND_X;
+    world[idx(x, y - 3, z)] = CHEST;
+    made++;
+  }
 }
 function buildLandmarks(seed) {
   const rnd = mulberry32(seed + 21);
@@ -420,7 +518,7 @@ function computeLight() {
   const touched = new Set();
   const WD = W * D, cmaxX = W / CHUNK - 1, cmaxZ = D / CHUNK - 1;
   let queue = [];
-  for (let i = 0; i < world.length; i++) if (world[i] === GLOW) { lightmap[i] = LIGHT_MAX; queue.push(i); }
+  for (let i = 0; i < world.length; i++) if (world[i] && BLOCKS[world[i]].glow) { lightmap[i] = LIGHT_MAX; queue.push(i); }
   while (queue.length) {
     const next = [];
     const spread = (j, level) => {
@@ -587,7 +685,7 @@ function setBlock(x, y, z, id) {
   const old = world[i];
   world[i] = id;
   edits.set(i, id);
-  if (id === GLOW || old === GLOW || nearLight(x, y, z)) relight();
+  if ((id && BLOCKS[id].glow) || (old && BLOCKS[old].glow) || nearLight(x, y, z)) relight();
   saveDirty = true;
   const cx = Math.floor(x / CHUNK), cz = Math.floor(z / CHUNK);
   dirtyChunks.add(chunkKey(cx, cz));
@@ -1237,11 +1335,35 @@ function pet(m) {
   setTimeout(() => beep(1320, 0.15, 'sine', 0.08), 90);
 }
 
+// Harta dalam peti: [item, minimum, maksimum, berat]
+const LOOT = [
+  [KRISTAL, 1, 3, 30], [EMAS, 1, 2, 20], [PERMATA, 1, 1, 8], [CAKE, 1, 1, 12],
+  [APPLE, 2, 2, 15], [GLOW, 2, 2, 8], [RAINBOW, 3, 3, 7],
+];
+let treasures = 0;
+function openChest(x, y, z) {
+  treasures++;
+  if (mode === 'survival') {
+    const total = LOOT.reduce((sum, l) => sum + l[3], 0);
+    for (let roll = 0, rolls = 3 + Math.floor(Math.random() * 3); roll < rolls; roll++) {
+      let pickAt = Math.random() * total, loot = LOOT[0];
+      for (const l of LOOT) { pickAt -= l[3]; if (pickAt <= 0) { loot = l; break; } }
+      const count = loot[1] + Math.floor(Math.random() * (loot[2] - loot[1] + 1));
+      for (let i = 0; i < count; i++) spawnDrop(x, y, z, loot[0]);
+    }
+  }
+  spawnHearts(x + 0.5, y + 0.6, z + 0.5);
+  spawnHearts(x + 0.5, y + 1.1, z + 0.5);
+  [659, 784, 988, 1319].forEach((freq, i) => setTimeout(() => beep(freq, 0.14, 'triangle', 0.07), i * 90));
+  showToast('Harta karun! Peti ke-' + treasures + ' dibuka');
+}
 function breakBlock(hit) {
   setBlock(hit.x, hit.y, hit.z, AIR);
   burst(hit.x, hit.y, hit.z, hit.id);
+  const def = BLOCKS[hit.id];
+  if (def.chest) { openChest(hit.x, hit.y, hit.z); return; }
   if (mode === 'survival') {
-    spawnDrop(hit.x, hit.y, hit.z, hit.id);
+    spawnDrop(hit.x, hit.y, hit.z, def.drop || hit.id);
     // Bunga sakura kadang-kadang gugurkan epal
     if (hit.id === LEAVES && Math.random() < 0.2) spawnDrop(hit.x, hit.y, hit.z, APPLE);
     exhaust += 0.03;
@@ -1252,6 +1374,7 @@ function breakBlock(hit) {
 function doPlace(sx, sy) {
   const res = aim(sx, sy), hit = res.hit;
   if (interact(res)) return;
+  if (hit && BLOCKS[hit.id].chest) { breakBlock(hit); return; } // tekan peti untuk buka
   if (ITEMS[heldId()] && ITEMS[heldId()].food) { eat(); return; }
   if (!hit) { showToast('Terlalu jauh - dekati block'); return; }
   const x = hit.x + hit.face[0], y = hit.y + hit.face[1], z = hit.z + hit.face[2];
@@ -1262,7 +1385,7 @@ function doPlace(sx, sy) {
       y + 1 > player.y && y < player.y + player.h) return;
   const id = heldId();
   if (id === AIR) { showToast('Slot kosong - pecahkan block untuk kumpul'); return; }
-  if (ITEMS[id]) { showToast('Ini alat - tahan pada block untuk guna'); return; }
+  if (ITEMS[id]) { showToast(ITEMS[id].tool ? 'Ini alat - guna butang pecah pada block' : 'Ini bahan - buka Beg untuk buat sesuatu'); return; }
   setBlock(x, y, z, id);
   consumeHeld();
   beep(420, 0.06, 'triangle', 0.07);
@@ -1782,12 +1905,17 @@ const RECIPES = [
   { out: [PICK_S, 1], in: [[STONE, 3], [LOG, 2]] },
   { out: [AXE_S, 1], in: [[STONE, 3], [LOG, 2]] },
   { out: [SHOVEL_S, 1], in: [[STONE, 1], [LOG, 2]] },
+  { out: [PICK_C, 1], in: [[KRISTAL, 3], [LOG, 2]] },
   { out: [BRICK, 4], in: [[STONE, 4]] },
   { out: [GLASS, 2], in: [[DIRT, 2], [STONE, 1]] },
   { out: [CANDY, 2], in: [[LEAVES, 2], [GRASS, 1]] },
   { out: [HEART, 2], in: [[LEAVES, 3], [PLANKS, 1]] },
   { out: [GLOW, 1], in: [[LEAVES, 2], [STONE, 2]] },
   { out: [CAKE, 1], in: [[APPLE, 2], [CANDY, 1]] },
+  { out: [CRYSTAL_BLOCK, 1], in: [[KRISTAL, 4]] },
+  { out: [GOLD_BLOCK, 1], in: [[EMAS, 4]] },
+  { out: [TRAMP, 1], in: [[EMAS, 2], [PLANKS, 2]] },
+  { out: [RAINBOW, 4], in: [[PERMATA, 1], [STONE, 4]] },
 ];
 let mode = save.mode === 'creative' ? 'creative' : 'survival';
 const inv = new Array(INV_SIZE).fill(null);
@@ -2415,7 +2543,7 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // Untuk ujian dari konsol
-window.__pink = { player, mobs, world, getBlock, setBlock, doPlace, mining, inv, drops, addItem, heldId, RECIPES, craft, ITEMS, renderHotbar, damage, renderStats,
+window.__pink = { player, mobs, world, getBlock, setBlock, doPlace, breakBlock, get treasures() { return treasures; }, mining, inv, drops, addItem, heldId, RECIPES, craft, ITEMS, renderHotbar, damage, renderStats,
   get health() { return health; }, set health(v) { health = v; },
   get hunger() { return hunger; }, set hunger(v) { hunger = v; },
   get dead() { return dead; }, jellies, lightAt, critters, GEN, kickBall, interact, weather, setRain,
