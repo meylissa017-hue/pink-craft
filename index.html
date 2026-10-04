@@ -43,6 +43,8 @@
   .card button { display: block; width: 100%; margin-top: 12px; padding: 13px; border: none; border-radius: 12px; font-size: 17px; font-weight: 700; }
   #play { background: #ff4fa3; color: #fff; }
   #newWorld { background: #ffe3f1; color: #c2307a; }
+  #install { background: #c2307a; color: #fff; }
+  #install[hidden] { display: none; }
 </style>
 </head>
 <body>
@@ -59,6 +61,7 @@
     <h1>Pink Craft</h1>
     <p id="tips"></p>
     <p>Pegang <b>Heart Block</b> &mdash; Pinky akan ikut awak!</p>
+    <button id="install" hidden>Pasang Aplikasi</button>
     <button id="play">Main</button>
     <button id="newWorld">Dunia Baru</button>
   </div>
@@ -67,6 +70,21 @@
 <script type="module" src="game.js"></script>
 <script>
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
+
+  // Butang pasang: Chrome beri isyarat bila game boleh di-install
+  var installBtn = document.getElementById('install'), installEvent = null;
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault();
+    installEvent = e;
+    installBtn.hidden = false;
+  });
+  installBtn.addEventListener('click', function () {
+    if (!installEvent) return;
+    installEvent.prompt();
+    installEvent = null;
+    installBtn.hidden = true;
+  });
+  window.addEventListener('appinstalled', function () { installBtn.hidden = true; });
 </script>
 </body>
 </html>
