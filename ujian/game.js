@@ -424,7 +424,7 @@ function writeSave() {
       seed: save.seed, gen: pendingUpgrade ? 2 : GEN, base: pendingUpgrade || UPGRADED ? 1 : 0, fix: pendingUpgrade ? 1 : 0, edits: flat,
       player: [player.x, player.y, player.z, yaw, pitch], slot: selected,
       houses: houseSites, housesV: houseVersion, parks: parkSites,
-      stickers: [...earned], stats, look, music: musicOn ? 1 : 0, gift: 1,
+      stickers: [...earned], stats, look: myLook, music: musicOn ? 1 : 0, gift: 1,
       pets: mobs.filter((m) => m.tame).map((m) => [Math.round(m.x * 10) / 10, Math.round(m.y * 10) / 10, Math.round(m.z * 10) / 10]),
       mode, controls: consoleMode ? 'console' : 'touch', health, hunger, time: Math.round(dayTime), inv: inv.map((it) => (it ? (it.dur ? [it.id, it.count, it.dur] : [it.id, it.count]) : 0)),
     }));
@@ -2955,7 +2955,7 @@ renderStickers();
 // ---------- Rupa pemain ----------
 const LOOK_COLORS = [0xff4fa3, 0x6fb7ff, 0xffe14f, 0x6de38a, 0xc58cff, 0xff7a59];
 const HATS = ['Tiada', 'Mahkota', 'Reben', 'Topi'];
-const look = {
+const myLook = {
   c: save.look && Number.isInteger(save.look.c) && save.look.c >= 0 && save.look.c < LOOK_COLORS.length ? save.look.c : 0,
   h: save.look && Number.isInteger(save.look.h) && save.look.h >= 0 && save.look.h < HATS.length ? save.look.h : 0,
 };
@@ -2980,28 +2980,28 @@ function drawLook() {
   ctx.clearRect(0, 0, lookPreview.width, lookPreview.height);
   const box = (x, y, w, h, color) => { ctx.fillStyle = color; ctx.fillRect(x * u, y * u, w * u, h * u); };
   box(5, 20, 3, 8, '#5a4a8a'); box(8, 20, 3, 8, '#5a4a8a');             // kaki
-  box(4, 11, 8, 9, hex(LOOK_COLORS[look.c]));                            // badan
-  box(1.5, 11, 2.5, 9, hex(LOOK_COLORS[look.c])); box(12, 11, 2.5, 9, hex(LOOK_COLORS[look.c])); // lengan
+  box(4, 11, 8, 9, hex(LOOK_COLORS[myLook.c]));                            // badan
+  box(1.5, 11, 2.5, 9, hex(LOOK_COLORS[myLook.c])); box(12, 11, 2.5, 9, hex(LOOK_COLORS[myLook.c])); // lengan
   box(4, 4, 8, 7, '#ffd9b3'); box(4, 3, 8, 2, '#8f566c');                // kepala, rambut
   box(5.5, 6.5, 1.3, 1.3, '#3a2460'); box(9.2, 6.5, 1.3, 1.3, '#3a2460'); box(6.7, 9, 2.6, 0.7, '#ff7fbf');
-  if (look.h === 1) { box(4, 1.6, 8, 1.6, '#ffd633'); box(4, 0.4, 1.4, 1.4, '#ffd633'); box(7.3, 0.4, 1.4, 1.4, '#ffd633'); box(10.6, 0.4, 1.4, 1.4, '#ffd633'); }
-  if (look.h === 2) { box(5, 0.8, 2.6, 2.4, '#ff2f6d'); box(8.4, 0.8, 2.6, 2.4, '#ff2f6d'); box(7.3, 1.3, 1.4, 1.4, '#ffffff'); }
-  if (look.h === 3) { box(3.8, 1.4, 8.4, 2.2, '#4a90e0'); box(3.8, 3.4, 10.5, 0.9, '#4a90e0'); }
+  if (myLook.h === 1) { box(4, 1.6, 8, 1.6, '#ffd633'); box(4, 0.4, 1.4, 1.4, '#ffd633'); box(7.3, 0.4, 1.4, 1.4, '#ffd633'); box(10.6, 0.4, 1.4, 1.4, '#ffd633'); }
+  if (myLook.h === 2) { box(5, 0.8, 2.6, 2.4, '#ff2f6d'); box(8.4, 0.8, 2.6, 2.4, '#ff2f6d'); box(7.3, 1.3, 1.4, 1.4, '#ffffff'); }
+  if (myLook.h === 3) { box(3.8, 1.4, 8.4, 2.2, '#4a90e0'); box(3.8, 3.4, 10.5, 0.9, '#4a90e0'); }
 }
 function renderLook() {
   document.getElementById('lookColors').replaceChildren(...LOOK_COLORS.map((color, i) => {
     const b = document.createElement('button');
-    b.className = i === look.c ? 'swatch on' : 'swatch';
+    b.className = i === myLook.c ? 'swatch on' : 'swatch';
     b.style.background = hex(color);
     b.setAttribute('aria-label', 'Warna baju ' + (i + 1));
-    b.addEventListener('click', () => { look.c = i; saveDirty = true; renderLook(); });
+    b.addEventListener('click', () => { myLook.c = i; saveDirty = true; renderLook(); });
     return b;
   }));
   document.getElementById('lookHats').replaceChildren(...HATS.map((label, i) => {
     const b = document.createElement('button');
-    b.className = i === look.h ? 'hat on' : 'hat';
+    b.className = i === myLook.h ? 'hat on' : 'hat';
     b.textContent = label;
-    b.addEventListener('click', () => { look.h = i; saveDirty = true; renderLook(); });
+    b.addEventListener('click', () => { myLook.h = i; saveDirty = true; renderLook(); });
     return b;
   }));
   drawLook();
@@ -3469,7 +3469,7 @@ function netSend(msg, except) {
   if (net.role === 'host') net.conns.forEach((conn, id) => { if (id !== except && conn.open) conn.send(msg); });
   else if (net.role === 'guest' && net.host && net.host.open) net.host.send(msg);
 }
-const playerMsg = (id) => ({ t: 'p', id, x: round2(player.x), y: round2(player.y), z: round2(player.z), yaw: round2(yaw), c: look.c, h: look.h });
+const playerMsg = (id) => ({ t: 'p', id, x: round2(player.x), y: round2(player.y), z: round2(player.z), yaw: round2(yaw), c: myLook.c, h: myLook.h });
 
 function netHost() {
   if (typeof Peer === 'undefined') { setNetStatus('Main bersama tidak tersedia dalam versi ini.'); return; }
@@ -3715,7 +3715,7 @@ requestAnimationFrame(frame);
 window.__pink = { player, mobs, world, getBlock, setBlock, doPlace, breakBlock, get treasures() { return treasures; }, mining, inv, drops, addItem, heldId, RECIPES, craft, ITEMS, renderHotbar, damage, renderStats,
   get health() { return health; }, set health(v) { health = v; },
   get hunger() { return hunger; }, set hunger(v) { hunger = v; },
-  get dead() { return dead; }, jellies, lightAt, earned, award, look, sleepInBed, launchFirework, rockets, sparks, parkSites, houseSites, houseVersion, net, avatars, netHost, netJoin, netLeave, guest, critters, GEN, UPGRADED, kickBall, interact, weather, setRain,
+  get dead() { return dead; }, jellies, lightAt, earned, award, look: myLook, sleepInBed, launchFirework, rockets, sparks, parkSites, houseSites, houseVersion, net, avatars, netHost, netJoin, netLeave, guest, critters, GEN, UPGRADED, kickBall, interact, weather, setRain,
   get rainAmt() { return rainAmt; }, get rainbowAmt() { return rainbowAmt; },
   get ball() { return ball; }, get riding() { return riding; }, get goals() { return goals; }, get consoleMode() { return consoleMode; },
   get dayTime() { return dayTime; }, set dayTime(v) { dayTime = v; }, get daylight() { return daylight; },
