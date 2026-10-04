@@ -96,6 +96,18 @@
   .card button { display: block; width: 100%; margin-top: 12px; padding: 13px; border: none; border-radius: 12px; font-size: 17px; font-weight: 700; }
   #play { background: #ff4fa3; color: #fff; }
   #newWorld { background: #ffe3f1; color: #c2307a; }
+  .card button[hidden], .card input[hidden] { display: none; }
+  #mpBtn { background: #6fb7ff; color: #fff; }
+  #mp { position: fixed; z-index: 4; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(190, 220, 255, .8); padding: 12px; box-sizing: border-box; }
+  #mp.hidden { display: none; }
+  #mp h2 { margin: 0 0 4px; color: #3d8fe0; font-size: 22px; }
+  #mp .card { touch-action: pan-y; }
+  #mpHost, #mpJoin { background: #6fb7ff; color: #fff; }
+  #mpLeave { background: #ff7a59; color: #fff; }
+  #mpClose { background: #e6eefc; color: #3d6fb0; }
+  #mpCode { display: block; width: 100%; box-sizing: border-box; margin-top: 12px; padding: 12px; border: 2px solid #6fb7ff; border-radius: 12px; font-size: 22px; font-weight: 700; text-align: center; letter-spacing: 6px; text-transform: uppercase; color: #3d6fb0; }
+  #mpBadge { position: fixed; z-index: 3; left: calc(10px + env(safe-area-inset-left)); top: calc(40px + env(safe-area-inset-top)); padding: 4px 10px; border-radius: 999px; background: rgba(111, 183, 255, .9); color: #fff; font: 700 12px system-ui, sans-serif; pointer-events: none; }
+  #mpBadge[hidden] { display: none; }
   #install { background: #c2307a; color: #fff; }
   #install[hidden] { display: none; }
   #saveStatus { position: fixed; z-index: 3; left: calc(10px + env(safe-area-inset-left)); top: calc(10px + env(safe-area-inset-top)); max-width: min(70vw, 430px); padding: 5px 8px; border-radius: 8px; background: rgba(255,255,255,.9); color: #7a1048; font-size: 11px; pointer-events: none; }
@@ -121,6 +133,7 @@
 <div id="crosshair"></div>
 <div id="toast"></div>
 <div id="saveStatus" role="status" aria-live="polite"></div>
+<div id="mpBadge" hidden></div>
 <div id="hotbar"></div>
 <div id="stats"><div id="hp"></div><div id="food"></div></div>
 <div id="joy"><div id="knob"></div></div>
@@ -172,10 +185,24 @@
     <button id="upgradeBtn" hidden>Naik Taraf Dunia</button>
     <button id="modeBtn"></button>
     <button id="ctrlBtn"></button>
+    <button id="mpBtn">Main Bersama</button>
     <button id="newWorld">Dunia Baru</button>
   </div>
 </div>
 
+<div id="mp" class="hidden">
+  <div class="card">
+    <h2>Main Bersama</h2>
+    <p id="mpStatus">Main dengan kawan dalam dunia yang sama. Perlu internet.</p>
+    <button id="mpHost">Buat Bilik (kawan masuk dunia saya)</button>
+    <input id="mpCode" maxlength="5" placeholder="KOD" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Kod bilik">
+    <button id="mpJoin">Sertai Bilik Kawan</button>
+    <button id="mpLeave" hidden>Keluar Bilik</button>
+    <button id="mpClose">Tutup</button>
+  </div>
+</div>
+
+<script src="peerjs.min.js"></script>
 <script type="module" src="game.js"></script>
 <script>
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});

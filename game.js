@@ -285,7 +285,27 @@ function loadSave() {
   } catch (e) { saveWarning = 'Simpanan tidak dapat dibaca. Dunia sementara dibuka; simpanan asal tidak akan ditindih.'; }
   return null;
 }
-const save = loadSave() || { seed: (Math.random() * 2147483647) | 0, gen: 2, edits: [], player: null };
+// Mod tetamu (main bersama): dunia kawan diterima melalui rangkaian dan disimpan sementara di sini.
+// Simpanan sendiri tidak disentuh selagi berada dalam bilik kawan.
+const GUEST_KEY = 'pinkcraft-guest';
+function loadGuest() {
+  try {
+    const g = JSON.parse(sessionStorage.getItem(GUEST_KEY));
+    const s = g && g.world;
+    if (!g || typeof g.code !== 'string' || !s || !Number.isInteger(s.seed) || !Array.isArray(s.edits) || s.edits.length % 2 !== 0) return null;
+    for (let i = 0; i < s.edits.length; i += 2) {
+      const index = s.edits[i], id = s.edits[i + 1];
+      if (!Number.isInteger(index) || index < 0 || index >= W * D * H || !Number.isInteger(id) || (id !== AIR && !BLOCKS[id])) return null;
+    }
+    return {
+      code: g.code,
+      world: { seed: s.seed, gen: s.gen === 2 ? 2 : 1, base: s.base === 1 ? 1 : 0, edits: s.edits, time: Number.isFinite(s.time) ? s.time : 0, player: null },
+    };
+  } catch (e) { return null; }
+}
+const guest = loadGuest();
+const save = guest ? guest.world : (loadSave() || { seed: (Math.random() * 2147483647) | 0, gen: 2, edits: [], player: null });
+if (guest) saveWarning = 'Dunia kawan (bilik ' + guest.code + '): tidak disimpan pada peranti ini.';
 // Versi penjanaan dunia: simpanan lama tiada medan ini dan kekal dengan rupa bumi lama
 const GEN = save.gen === 2 ? 2 : 1;
 // Dunia lama yang dinaik taraf: rupa bumi dan pokok asal dikekalkan, kemudian laut, padang dan taman ditambah
@@ -706,6 +726,7 @@ function buildChunk(cx, cz) {
 
 for (let cz = 0; cz < D / CHUNK; cz++) for (let cx = 0; cx < W / CHUNK; cx++) buildChunk(cx, cz);
 
+let netHook = null; // dipasang oleh bahagian Main Bersama
 function setBlock(x, y, z, id) {
   if (!inBounds(x, y, z)) return;
   const i = idx(x, y, z);
@@ -721,6 +742,7 @@ function setBlock(x, y, z, id) {
   if (lx === CHUNK - 1 && cx < W / CHUNK - 1) dirtyChunks.add(chunkKey(cx + 1, cz));
   if (lz === 0 && cz > 0) dirtyChunks.add(chunkKey(cx, cz - 1));
   if (lz === CHUNK - 1 && cz < D / CHUNK - 1) dirtyChunks.add(chunkKey(cx, cz + 1));
+  if (netHook) netHook(i, id);
 }
 
 // ---------- Awan ----------
@@ -1643,6 +1665,11 @@ function resetBall() {
 }
 // Sepak ke arah pandangan pemain
 function kickBall(power, lift) {
+  if (net.role === 'guest' && net.host) {
+    netSend({ t: 'k', vx: -Math.sin(yaw) * power, vy: lift, vz: -Math.cos(yaw) * power });
+    beep(240, 0.08, 'triangle', 0.08);
+    return;
+  }
   ball.vx = -Math.sin(yaw) * power;
   ball.vz = -Math.cos(yaw) * power;
   ball.vy = lift;
@@ -1676,6 +1703,7 @@ function updateBall(dt) {
   // Gol: bola melepasi garisan di antara dua tiang
   if (b.z > 46.25 && b.z < 50.75 && b.y < FIELD_ZONE.y + 3.5 && (b.x < 62 || b.x > 83)) {
     goals++;
+    netSend({ t: 'g', n: goals });
     for (let i = 0; i < 4; i++) spawnHearts(b.x, b.y + 0.5 + i * 0.4, b.z);
     showToast('GOOOL! Jumlah gol: ' + goals);
     [523, 659, 784, 1047].forEach((freq, i) => setTimeout(() => beep(freq, 0.16, 'square', 0.06), i * 110));
@@ -2326,7 +2354,8 @@ document.getElementById('ctrlBtn').addEventListener('click', () => {
 applyControls();
 if (save.fix) saveDirty = true; // simpan segera hasil naik taraf
 const upgradeBtn = document.getElementById('upgradeBtn');
-if (GEN < 2) {
+if (guest) newWorldBtn.hidden = true; // Dunia Baru akan memadam dunia sendiri, bukan dunia kawan
+if (GEN < 2 && !guest) {
   document.getElementById('oldWorld').hidden = false;
   upgradeBtn.hidden = false;
 }
@@ -2536,6 +2565,283 @@ padButton('padX', () => {
 }, () => clearInterval(placeRepeat));
 padButton('padY', () => { if (mode === 'survival') setBag(!bagOpen); });
 
+// ---------- Main bersama (berbilang pemain) ----------
+// Seorang jadi hos (dunianya dikongsi), sehingga 3 kawan sertai dengan kod bilik.
+// Sambungan terus antara peranti (WebRTC melalui PeerJS); hos menjadi pusat dan menghantar semula mesej kepada yang lain.
+// Yang disegerakkan: block, kedudukan pemain, bola, masa siang/malam. Haiwan, item jatuh dan cuaca adalah tempatan.
+const NET_PREFIX = 'pinkcraft-bilik-';
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const MAX_GUESTS = 3;
+const net = { role: null, code: '', peer: null, host: null, conns: new Map(), nextId: 2, myId: 1, sendTimer: 0, slowTimer: 0, ballTarget: null };
+const avatars = new Map();
+const AVATAR_COLORS = [0xff4fa3, 0x6fb7ff, 0xffe14f, 0x6de38a];
+const mpEl = document.getElementById('mp'), mpStatus = document.getElementById('mpStatus'), mpBadge = document.getElementById('mpBadge');
+const mpHostBtn = document.getElementById('mpHost'), mpJoinBtn = document.getElementById('mpJoin');
+const mpLeaveBtn = document.getElementById('mpLeave'), mpCode = document.getElementById('mpCode');
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const round2 = (v) => Math.round(v * 100) / 100;
+
+function setNetStatus(text) { mpStatus.textContent = text; }
+function updateNetUi() {
+  const inRoom = !!net.role;
+  mpHostBtn.hidden = inRoom || !!guest;
+  mpJoinBtn.hidden = inRoom;
+  mpCode.hidden = inRoom;
+  mpLeaveBtn.hidden = !inRoom;
+  mpBadge.hidden = !inRoom;
+  if (inRoom) mpBadge.textContent = 'Bilik ' + net.code + ' \u00b7 ' + (avatars.size + 1) + ' pemain';
+}
+
+// Watak pemain lain: badan berwarna ikut giliran masuk
+function makeAvatar(id) {
+  const group = new THREE.Group(), inner = new THREE.Group();
+  inner.scale.setScalar(1 / 17);
+  const color = AVATAR_COLORS[(id - 1) % AVATAR_COLORS.length];
+  const legs = [-2, 2].map((x) => {
+    const pivot = new THREE.Group();
+    pivot.position.set(x, 12, 0);
+    part(pivot, 3.6, 12, 3.6, 0x5a4a8a, 0, -6, 0);
+    inner.add(pivot);
+    return pivot;
+  });
+  part(inner, 8, 11, 4, color, 0, 17.5, 0);
+  part(inner, 3, 11, 3.6, color, -5.6, 17.5, 0);
+  part(inner, 3, 11, 3.6, color, 5.6, 17.5, 0);
+  part(inner, 8, 8, 8, 0xffd9b3, 0, 27, 0);
+  part(inner, 8.4, 2.4, 8.4, color, 0, 30.4, 0);
+  part(inner, 1.4, 1.4, 0.5, DARK, -1.8, 27.5, 4.1);
+  part(inner, 1.4, 1.4, 0.5, DARK, 1.8, 27.5, 4.1);
+  part(inner, 3, 0.8, 0.5, 0xff7fbf, 0, 25, 4.1);
+  group.add(inner);
+  scene.add(group);
+  const a = { group, legs, x: 0, y: 0, z: 0, yaw: 0, tx: 0, ty: 0, tz: 0, tyaw: 0, phase: 0, fresh: true };
+  avatars.set(id, a);
+  updateNetUi();
+  return a;
+}
+function removeAvatar(id) {
+  const a = avatars.get(id);
+  if (!a) return;
+  scene.remove(a.group);
+  avatars.delete(id);
+  updateNetUi();
+}
+function onPlayerMsg(m) {
+  if (!Number.isInteger(m.id) || ![m.x, m.y, m.z, m.yaw].every(Number.isFinite) || m.id === net.myId) return;
+  const a = avatars.get(m.id) || makeAvatar(m.id);
+  a.tx = m.x; a.ty = m.y; a.tz = m.z; a.tyaw = m.yaw;
+  if (a.fresh) { a.fresh = false; a.x = m.x; a.y = m.y; a.z = m.z; a.yaw = m.yaw; }
+}
+function updateAvatars(dt) {
+  const k = Math.min(1, dt * 12);
+  avatars.forEach((a) => {
+    const px = a.x, pz = a.z;
+    a.x += (a.tx - a.x) * k; a.y += (a.ty - a.y) * k; a.z += (a.tz - a.z) * k;
+    const diff = Math.atan2(Math.sin(a.tyaw - a.yaw), Math.cos(a.tyaw - a.yaw));
+    a.yaw += diff * k;
+    a.group.position.set(a.x, a.y, a.z);
+    a.group.rotation.y = a.yaw + Math.PI; // model menghadap +Z, pemain memandang -Z
+    const moved = Math.hypot(a.x - px, a.z - pz);
+    a.phase += moved * 6;
+    const swing = moved > 1e-3 ? Math.sin(a.phase) * 0.6 : 0;
+    a.legs[0].rotation.x = swing; a.legs[1].rotation.x = -swing;
+  });
+}
+
+const flatEdits = () => { const flat = []; edits.forEach((id, i) => flat.push(i, id)); return flat; };
+const validEdit = (i, id) => Number.isInteger(i) && i >= 0 && i < world.length && Number.isInteger(id) && (id === AIR || !!BLOCKS[id]);
+let applyingRemote = false;
+function applyRemote(i, id) {
+  if (!validEdit(i, id) || world[i] === id) return;
+  applyingRemote = true;
+  setBlock(i % W, Math.floor(i / (W * D)), Math.floor(i / W) % D, id);
+  applyingRemote = false;
+}
+netHook = (i, id) => { if (!applyingRemote && net.role) netSend({ t: 'b', i, id }); };
+// Hos: hantar kepada semua tetamu (kecuali 'except'). Tetamu: hantar kepada hos.
+function netSend(msg, except) {
+  if (net.role === 'host') net.conns.forEach((conn, id) => { if (id !== except && conn.open) conn.send(msg); });
+  else if (net.role === 'guest' && net.host && net.host.open) net.host.send(msg);
+}
+const playerMsg = (id) => ({ t: 'p', id, x: round2(player.x), y: round2(player.y), z: round2(player.z), yaw: round2(yaw) });
+
+function netHost() {
+  if (typeof Peer === 'undefined') { setNetStatus('Main bersama tidak tersedia dalam versi ini.'); return; }
+  if (guest || net.role) return;
+  net.role = 'host';
+  net.myId = 1;
+  net.code = Array.from({ length: 5 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
+  setNetStatus('Membuka bilik...');
+  updateNetUi();
+  const peer = net.peer = new Peer(NET_PREFIX + net.code.toLowerCase());
+  peer.on('open', () => setNetStatus('Bilik dibuka! Beri kod ini kepada kawan: ' + net.code));
+  peer.on('connection', (conn) => {
+    conn.on('open', () => {
+      if (net.conns.size >= MAX_GUESTS) {
+        conn.send({ t: 'full' });
+        setTimeout(() => conn.close(), 500);
+        return;
+      }
+      conn.pinkId = net.nextId++;
+      net.conns.set(conn.pinkId, conn);
+    });
+    conn.on('data', (m) => hostData(conn, m));
+    conn.on('close', () => {
+      if (!conn.pinkId || net.conns.get(conn.pinkId) !== conn) return;
+      net.conns.delete(conn.pinkId);
+      if (avatars.has(conn.pinkId)) showToast('Kawan keluar dari bilik');
+      removeAvatar(conn.pinkId);
+      netSend({ t: 'bye', id: conn.pinkId });
+    });
+  });
+  peer.on('error', (e) => {
+    if (e.type === 'unavailable-id') { peer.destroy(); net.role = null; netHost(); return; } // kod sudah diguna: cuba kod lain
+    setNetStatus('Masalah sambungan (' + e.type + '). Semak internet dan cuba lagi.');
+  });
+}
+function hostData(conn, m) {
+  const id = conn.pinkId;
+  if (!id || !m || typeof m !== 'object') return;
+  if (m.t === 'join') {
+    // Kali pertama: hantar seluruh dunia; tetamu akan memuat semula dengan dunia ini
+    conn.send({ t: 'world', world: { seed: save.seed, gen: GEN, base: UPGRADED ? 1 : 0, edits: flatEdits(), time: Math.round(dayTime) } });
+  } else if (m.t === 'hello') {
+    // Tetamu sudah memuat dunia: hantar perubahan terkini dan kedudukan semua pemain
+    conn.send({ t: 'edits', you: id, edits: flatEdits(), time: Math.round(dayTime) });
+    conn.send(playerMsg(1));
+    avatars.forEach((a, aid) => { if (aid !== id) conn.send({ t: 'p', id: aid, x: a.tx, y: a.ty, z: a.tz, yaw: a.tyaw }); });
+    showToast('Kawan masuk ke bilik!');
+  } else if (m.t === 'b') {
+    if (!validEdit(m.i, m.id)) return;
+    applyRemote(m.i, m.id);
+    netSend({ t: 'b', i: m.i, id: m.id }, id);
+  } else if (m.t === 'p') {
+    if (![m.x, m.y, m.z, m.yaw].every(Number.isFinite)) return;
+    const msg = { t: 'p', id, x: m.x, y: m.y, z: m.z, yaw: m.yaw };
+    onPlayerMsg(msg);
+    netSend(msg, id);
+  } else if (m.t === 'k' && ball && [m.vx, m.vy, m.vz].every(Number.isFinite)) {
+    ball.vx = clamp(m.vx, -14, 14); ball.vy = clamp(m.vy, 0, 8); ball.vz = clamp(m.vz, -14, 14);
+    ball.cool = 0.3;
+  }
+}
+
+function netJoin(code, resume) {
+  if (typeof Peer === 'undefined') { setNetStatus('Main bersama tidak tersedia dalam versi ini.'); return; }
+  code = String(code).trim().toUpperCase();
+  if (!/^[A-Z0-9]{5}$/.test(code)) { setNetStatus('Kod bilik ada 5 huruf atau nombor.'); return; }
+  if (net.role) return;
+  net.role = 'guest';
+  net.code = code;
+  setNetStatus('Menyambung ke bilik ' + code + '...');
+  updateNetUi();
+  const peer = net.peer = new Peer();
+  peer.on('open', () => {
+    const conn = peer.connect(NET_PREFIX + code.toLowerCase(), { reliable: true });
+    conn.on('open', () => {
+      net.host = conn;
+      conn.send({ t: resume ? 'hello' : 'join' });
+      setNetStatus(resume ? 'Awak dalam bilik ' + code + ', di dunia kawan.' : 'Memuat dunia kawan...');
+    });
+    conn.on('data', guestData);
+    conn.on('close', () => {
+      net.host = null;
+      [...avatars.keys()].forEach(removeAvatar);
+      setNetStatus('Sambungan ke bilik terputus. Tekan Keluar Bilik untuk balik ke dunia sendiri.');
+      showToast('Sambungan ke bilik terputus');
+    });
+  });
+  peer.on('error', (e) => {
+    setNetStatus(e.type === 'peer-unavailable'
+      ? 'Bilik ' + code + ' tak dijumpai. Semak kod, dan pastikan kawan sudah buka bilik.'
+      : 'Masalah sambungan (' + e.type + '). Semak internet dan cuba lagi.');
+    if (!resume) { peer.destroy(); net.role = null; updateNetUi(); }
+  });
+}
+function guestData(m) {
+  if (!m || typeof m !== 'object') return;
+  if (m.t === 'world') {
+    try {
+      sessionStorage.setItem(GUEST_KEY, JSON.stringify({ code: net.code, world: m.world }));
+    } catch (e) { setNetStatus('Dunia kawan terlalu besar untuk dimuat pada peranti ini.'); return; }
+    location.reload();
+  } else if (m.t === 'full') {
+    setNetStatus('Bilik penuh (paling ramai 4 pemain).');
+  } else if (m.t === 'edits') {
+    if (Number.isInteger(m.you)) net.myId = m.you;
+    if (Array.isArray(m.edits)) for (let i = 0; i + 1 < m.edits.length; i += 2) applyRemote(m.edits[i], m.edits[i + 1]);
+    if (Number.isFinite(m.time)) dayTime = m.time % DAY_LENGTH;
+    updateNetUi();
+  } else if (m.t === 'b') {
+    applyRemote(m.i, m.id);
+  } else if (m.t === 'p') {
+    onPlayerMsg(m);
+  } else if (m.t === 'bye') {
+    removeAvatar(m.id);
+  } else if (m.t === 'o') {
+    if ([m.x, m.y, m.z].every(Number.isFinite)) net.ballTarget = m;
+  } else if (m.t === 't') {
+    if (Number.isFinite(m.time)) dayTime = m.time % DAY_LENGTH;
+  } else if (m.t === 'g') {
+    showToast('GOOOL! Jumlah gol: ' + (Number.isInteger(m.n) ? m.n : ''));
+    [523, 659, 784, 1047].forEach((freq, i) => setTimeout(() => beep(freq, 0.16, 'square', 0.06), i * 110));
+  }
+}
+function netLeave() {
+  if (net.peer) net.peer.destroy();
+  [...avatars.keys()].forEach(removeAvatar);
+  net.role = null; net.peer = null; net.host = null; net.conns.clear(); net.ballTarget = null;
+  if (guest) {
+    // Balik ke dunia sendiri
+    try { sessionStorage.removeItem(GUEST_KEY); } catch (e) { /* tiada storan sesi */ }
+    location.reload();
+    return;
+  }
+  setNetStatus('Main dengan kawan dalam dunia yang sama. Perlu internet.');
+  updateNetUi();
+}
+// Tetamu tak mensimulasi bola: ikut kedudukan dari hos, dan hantar sepakan kepada hos
+function guestBall(dt) {
+  const b = ball, t = net.ballTarget;
+  b.cool -= dt;
+  if (t) {
+    const k = Math.min(1, dt * 12), px = b.x, pz = b.z;
+    b.x += (t.x - b.x) * k; b.y += (t.y - b.y) * k; b.z += (t.z - b.z) * k;
+    b.inner.rotation.x += (b.z - pz) * 2.5;
+    b.inner.rotation.z -= (b.x - px) * 2.5;
+  }
+  const dx = b.x - player.x, dz = b.z - player.z, d = Math.hypot(dx, dz) || 1;
+  if (d < 0.8 && Math.abs(b.y - player.y) < 1.2 && Math.hypot(player.vx, player.vz) > 0.5 && b.cool <= 0) {
+    netSend({ t: 'k', vx: player.vx * 1.5 + (dx / d) * 2, vy: 2.5, vz: player.vz * 1.5 + (dz / d) * 2 });
+    b.cool = 0.25;
+  }
+  b.group.position.set(b.x, b.y, b.z);
+}
+function netTick(dt) {
+  if (!net.role) return;
+  updateAvatars(dt);
+  net.sendTimer += dt;
+  if (net.sendTimer >= 0.1) {
+    net.sendTimer = 0;
+    netSend(playerMsg(net.myId));
+    if (net.role === 'host' && ball) netSend({ t: 'o', x: round2(ball.x), y: round2(ball.y), z: round2(ball.z) });
+  }
+  net.slowTimer += dt;
+  if (net.slowTimer >= 5) {
+    net.slowTimer = 0;
+    if (net.role === 'host') netSend({ t: 't', time: Math.round(dayTime) });
+  }
+}
+
+document.getElementById('mpBtn').addEventListener('click', () => { mpEl.classList.remove('hidden'); });
+document.getElementById('mpClose').addEventListener('click', () => { mpEl.classList.add('hidden'); });
+mpHostBtn.addEventListener('click', netHost);
+mpJoinBtn.addEventListener('click', () => netJoin(mpCode.value, false));
+mpLeaveBtn.addEventListener('click', netLeave);
+updateNetUi();
+// Selepas memuat dunia kawan, sambung semula ke bilik yang sama
+if (guest) netJoin(guest.code, true);
+
 // ---------- Simpan berkala ----------
 setInterval(writeSave, 3000);
 document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
@@ -2555,9 +2861,10 @@ function frame(now) {
   if (playing && !bagOpen && !dead) {
     for (const m of mobs) updateMob(m, dt, time);
     for (const c of critters) updateCritter(c, dt, time);
-    if (ball) updateBall(dt);
+    if (ball) { if (net.role === 'guest' && net.host) guestBall(dt); else updateBall(dt); }
   }
   updateJellies(dt);
+  netTick(dt);
   updateHearts(dt);
   updateParticles(dt);
   if (playing && !bagOpen && !dead) updateDrops(dt, time);
@@ -2593,7 +2900,7 @@ requestAnimationFrame(frame);
 window.__pink = { player, mobs, world, getBlock, setBlock, doPlace, breakBlock, get treasures() { return treasures; }, mining, inv, drops, addItem, heldId, RECIPES, craft, ITEMS, renderHotbar, damage, renderStats,
   get health() { return health; }, set health(v) { health = v; },
   get hunger() { return hunger; }, set hunger(v) { hunger = v; },
-  get dead() { return dead; }, jellies, lightAt, critters, GEN, UPGRADED, kickBall, interact, weather, setRain,
+  get dead() { return dead; }, jellies, lightAt, net, avatars, netHost, netJoin, netLeave, guest, critters, GEN, UPGRADED, kickBall, interact, weather, setRain,
   get rainAmt() { return rainAmt; }, get rainbowAmt() { return rainbowAmt; },
   get ball() { return ball; }, get riding() { return riding; }, get goals() { return goals; }, get consoleMode() { return consoleMode; },
   get dayTime() { return dayTime; }, set dayTime(v) { dayTime = v; }, get daylight() { return daylight; },
