@@ -189,20 +189,29 @@ function makeAtlas() {
 }
 
 // ---------- Simpanan ----------
+let saveWarning = '';
 function loadSave() {
   try {
     const s = JSON.parse(localStorage.getItem(SAVE_KEY));
-    if (s && typeof s.seed === 'number') return s;
-  } catch (e) { /* simpanan rosak atau storan disekat: mula dunia baru */ }
+    if (s === null) return null;
+    if (!s || !Number.isInteger(s.seed) || !Array.isArray(s.edits) || s.edits.length % 2 !== 0) throw new Error('Simpanan tidak sah');
+    for (let i = 0; i < s.edits.length; i += 2) {
+      const index = s.edits[i], id = s.edits[i + 1];
+      if (!Number.isInteger(index) || index < 0 || index >= W * D * H || !Number.isInteger(id) || (id !== AIR && !BLOCKS[id])) throw new Error('Block tidak sah');
+    }
+    if (s.player && (!Array.isArray(s.player) || s.player.length !== 5 || !s.player.every(Number.isFinite))) s.player = null;
+    return s;
+  } catch (e) { saveWarning = 'Simpanan tidak dapat dibaca. Dunia sementara dibuka; simpanan asal tidak akan ditindih.'; }
   return null;
 }
 const save = loadSave() || { seed: (Math.random() * 2147483647) | 0, edits: [], player: null };
 const edits = new Map();
 let saveDirty = false;
+const saveStatus = document.getElementById('saveStatus');
+saveStatus.textContent = saveWarning || 'Dunia disimpan secara automatik pada peranti ini.';
 
 function writeSave() {
-  if (!saveDirty) return;
-  saveDirty = false;
+  if (!saveDirty || saveWarning) return;
   const flat = [];
   edits.forEach((id, i) => flat.push(i, id));
   try {
@@ -211,7 +220,13 @@ function writeSave() {
       player: [player.x, player.y, player.z, yaw, pitch], slot: selected,
       mode, controls: consoleMode ? 'console' : 'touch', health, hunger, time: Math.round(dayTime), inv: inv.map((it) => (it ? (it.dur ? [it.id, it.count, it.dur] : [it.id, it.count]) : 0)),
     }));
-  } catch (e) { /* storan penuh atau disekat: game tetap jalan tanpa simpan */ }
+    saveDirty = false;
+    saveStatus.textContent = 'Disimpan pada ' + new Date().toLocaleTimeString('ms-MY');
+    saveStatus.classList.remove('error');
+  } catch (e) {
+    saveStatus.textContent = 'Gagal menyimpan: storan mungkin penuh atau disekat. Jangan tutup permainan.';
+    saveStatus.classList.add('error');
+  }
 }
 
 // ---------- Dunia ----------
@@ -486,7 +501,7 @@ const sky = new THREE.Group();
   scene.add(sky);
 }
 function updateSky(dt) {
-  if (playing) dayTime = (dayTime + dt) % DAY_LENGTH;
+  if (playing && !bagOpen && !dead) dayTime = (dayTime + dt) % DAY_LENGTH;
   const angle = (dayTime / DAY_LENGTH) * Math.PI * 2;
   const sunH = Math.sin(angle);
   const t = Math.max(0, Math.min(1, (sunH + 0.15) / 0.4)), smooth = t * t * (3 - 2 * t);
@@ -563,6 +578,7 @@ let jumpHeld = false;
 let playing = false;
 
 function updatePlayer(dt) {
+  saveDirty = true;
   let f = -joy.y, s = joy.x;
   if (keys.KeyW || keys.ArrowUp) f += 1;
   if (keys.KeyS || keys.ArrowDown) f -= 1;
@@ -865,6 +881,7 @@ function hitJelly(j) {
   removeJelly(jellies.indexOf(j), true);
 }
 function updateJellies(dt) {
+  if (!playing || bagOpen || dead) return;
   const active = playing && mode === 'survival' && !dead;
   if (active && daylight < 0.5) {
     jellySpawnTimer -= dt;
@@ -1624,6 +1641,7 @@ function pause() {
   newWorldBtn.dataset.armed = '';
   overlay.classList.remove('hidden');
   if (locked()) document.exitPointerLock();
+  saveDirty = true;
   writeSave();
 }
 playBtn.addEventListener('click', startPlaying);
@@ -1785,7 +1803,8 @@ padButton('padY', () => { if (mode === 'survival') setBag(!bagOpen); });
 
 // ---------- Simpan berkala ----------
 setInterval(writeSave, 3000);
-document.addEventListener('visibilitychange', () => { if (document.hidden) { saveDirty = true; writeSave(); } });
+document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
+window.addEventListener('blur', () => { if (playing) pause(); });
 window.addEventListener('pagehide', () => { saveDirty = true; writeSave(); });
 
 // ---------- Gelung utama ----------
@@ -1796,11 +1815,11 @@ function frame(now) {
   const time = now / 1000;
 
   if (playing && !bagOpen && !dead) updatePlayer(dt);
-  for (const m of mobs) updateMob(m, dt, time);
+  if (playing && !bagOpen && !dead) for (const m of mobs) updateMob(m, dt, time);
   updateJellies(dt);
   updateHearts(dt);
   updateParticles(dt);
-  updateDrops(dt, time);
+  if (playing && !bagOpen && !dead) updateDrops(dt, time);
   for (const c of clouds) {
     c.position.x += dt * 0.8;
     if (c.position.x > 190) c.position.x = -90;

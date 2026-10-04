@@ -92,6 +92,20 @@
   #newWorld { background: #ffe3f1; color: #c2307a; }
   #install { background: #c2307a; color: #fff; }
   #install[hidden] { display: none; }
+  #saveStatus { position: fixed; z-index: 3; left: calc(10px + env(safe-area-inset-left)); top: calc(10px + env(safe-area-inset-top)); max-width: min(70vw, 430px); padding: 5px 8px; border-radius: 8px; background: rgba(255,255,255,.9); color: #7a1048; font-size: 11px; pointer-events: none; }
+  #saveStatus.error { background: #fff0dc; color: #852700; }
+  #bag, #overlay, #death { z-index: 4; }
+  #bag .card { max-width: 100%; }
+  #bagCols > div { min-width: 0; max-width: 100%; }
+  #recipes { min-width: 0; width: 100%; }
+  .recipe { flex-wrap: wrap; }
+  @media (max-width: 600px) {
+    #bag .card { width: 100%; padding: 12px 8px; }
+    #bagCols { flex-direction: column; align-items: stretch; }
+    #bagGrid { grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 2px; }
+    #bagGrid .slot { width: 100%; height: auto; aspect-ratio: 1; padding: 1px; border-width: 2px; }
+    #recipes { max-height: none; overflow: visible; box-sizing: border-box; }
+  }
 </style>
 </head>
 <body>
@@ -99,6 +113,7 @@
 <div id="hurt"></div>
 <div id="crosshair"></div>
 <div id="toast"></div>
+<div id="saveStatus" role="status" aria-live="polite"></div>
 <div id="hotbar"></div>
 <div id="stats"><div id="hp"></div><div id="food"></div></div>
 <div id="joy"><div id="knob"></div></div>
