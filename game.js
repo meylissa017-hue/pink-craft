@@ -1604,11 +1604,19 @@ const opaqueMat = new THREE.MeshBasicMaterial({ map: atlas, vertexColors: true }
 const glassMat = new THREE.MeshBasicMaterial({ map: atlas, vertexColors: true, transparent: true, depthWrite: false });
 // Kecerahan block = yang lebih terang antara cahaya siang (uDay) dan cahaya Glow Block (aGlow)
 const dayUniform = { value: 1 };
+// aWave: 1 = permukaan air (beralun), 2 = pucuk bunga dan tanaman (bergoyang ditiup angin)
+const timeUniform = { value: 0 };
 for (const mat of [opaqueMat, glassMat]) {
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uDay = dayUniform;
-    shader.vertexShader = 'attribute float aGlow;\nuniform float uDay;\n' +
-      shader.vertexShader.replace('#include <color_vertex>', '#include <color_vertex>\n\tvColor.rgb *= max(uDay, aGlow);');
+    shader.uniforms.uTime = timeUniform;
+    shader.vertexShader = 'attribute float aGlow;\nattribute float aWave;\nuniform float uDay;\nuniform float uTime;\n' +
+      shader.vertexShader
+        .replace('#include <color_vertex>', '#include <color_vertex>\n\tvColor.rgb *= max(uDay, aGlow);\n' +
+          '\tif (aWave > 0.5 && aWave < 1.5) vColor.rgb *= 1.0 + 0.07 * sin(uTime * 1.5 + position.x * 0.9 + position.z * 0.6);')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\n' +
+          '\tif (aWave > 1.5) { transformed.x += sin(uTime * 1.7 + position.x * 1.3 + position.z * 0.9) * 0.06; transformed.z += cos(uTime * 1.3 + position.z * 1.1 + position.x * 0.7) * 0.04; }\n' +
+          '\telse if (aWave > 0.5) transformed.y += sin(uTime * 1.5 + position.x * 0.9) * 0.045 + sin(uTime * 1.1 + position.z * 0.8) * 0.045 - 0.1;');
   };
 }
 
@@ -1630,6 +1638,7 @@ function toGeometry(d) {
   g.setAttribute('uv', new THREE.Float32BufferAttribute(d.uv, 2));
   g.setAttribute('color', new THREE.Float32BufferAttribute(d.col, 3));
   g.setAttribute('aGlow', new THREE.Float32BufferAttribute(d.glow, 1));
+  g.setAttribute('aWave', new THREE.Float32BufferAttribute(d.wave, 1));
   g.setIndex(d.index);
   g.computeBoundingSphere();
   return g;
@@ -1646,8 +1655,8 @@ function buildChunk(cx, cz) {
     for (const m of old) { scene.remove(m); m.geometry.dispose(); }
   }
   const data = [
-    { pos: [], uv: [], col: [], glow: [], index: [] },
-    { pos: [], uv: [], col: [], glow: [], index: [] },
+    { pos: [], uv: [], col: [], glow: [], wave: [], index: [] },
+    { pos: [], uv: [], col: [], glow: [], wave: [], index: [] },
   ];
   const x0 = cx * CHUNK, z0 = cz * CHUNK;
   for (let y = 0; y < H; y++) {
@@ -1657,6 +1666,8 @@ function buildChunk(cx, cz) {
         if (id === AIR) continue;
         const def = BLOCKS[id];
         const out = data[def.transparent ? 1 : 0];
+        const wave = id === WATER ? (y + 1 >= H || world[idx(x, y + 1, z)] !== WATER ? 1 : 0)
+          : id === FLOWERS || def.grows || def.harvest ? 2 : 0;
         for (const f of FACES) {
           const nx = x + f.dir[0], ny = y + f.dir[1], nz = z + f.dir[2];
           let glow = def.glow ? 1 : 0;
@@ -1677,6 +1688,7 @@ function buildChunk(cx, cz) {
             out.uv.push((tx + u) / 4, 1 - (ty + 1 - v) / ATLAS_ROWS);
             out.col.push(shade, shade, shade);
             out.glow.push(glow);
+            out.wave.push(c[1] === 1 ? wave : 0);
           }
           out.index.push(n, n + 1, n + 2, n + 2, n + 1, n + 3);
         }
@@ -1736,7 +1748,7 @@ const clouds = [];
 const DAY_LENGTH = 600; // saat untuk satu hari penuh
 let dayTime = Number.isFinite(save.time) ? save.time % DAY_LENGTH : DAY_LENGTH * 0.05;
 let daylight = 1, wasNight = false;
-const SKY_DAY = new THREE.Color(0xffd9ec), SKY_NIGHT = new THREE.Color(0x2b1a4a), SKY_DUSK = new THREE.Color(0xff9fb0);
+const SKY_DAY = new THREE.Color(0xffd9ec), SKY_NIGHT = new THREE.Color(0x2b1a4a), SKY_DUSK = new THREE.Color(0xff9a85);
 const SKY_RAIN = new THREE.Color(0xa9a6c8);
 const skyColor = new THREE.Color();
 const sky = new THREE.Group();
@@ -1750,6 +1762,40 @@ const sky = new THREE.Group();
   sky.add(sun, moon);
   scene.add(sky);
 }
+// Cahaya jingga di sekeliling matahari waktu terbit dan terbenam
+const sunGlow = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const ctx = c.getContext('2d'), grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, 'rgba(255,236,170,1)');
+  grad.addColorStop(0.35, 'rgba(255,150,110,0.55)');
+  grad.addColorStop(1, 'rgba(255,120,150,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 64, 64);
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, opacity: 0, fog: false, depthWrite: false }));
+  sprite.position.set(178, 0, 0);
+  sprite.scale.setScalar(170);
+  sprite.renderOrder = -2;
+  sky.add(sprite);
+  return sprite;
+})();
+// Bintang malam: dua kumpulan yang berkelip berselang-seli, berputar bersama bulan
+const starMats = [2, 3].map((size, n) => {
+  const rnd = mulberry32(777 + n), pts = [];
+  for (let i = 0; i < (n ? 110 : 320); i++) {
+    const u = rnd() * 2 - 1, a = rnd() * Math.PI * 2, r = Math.sqrt(1 - u * u);
+    pts.push(r * Math.cos(a) * 172, u * 172, r * Math.sin(a) * 172);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+  const mat = new THREE.PointsMaterial({ color: n ? 0xfff0c2 : 0xffffff, size, sizeAttenuation: false, transparent: true, opacity: 0, fog: false, depthWrite: false });
+  const stars = new THREE.Points(g, mat);
+  stars.frustumCulled = false;
+  stars.renderOrder = -3;
+  sky.add(stars);
+  return mat;
+});
+const CLOUD_DUSK = new THREE.Color(0xffb38f);
 function updateSky(dt) {
   if (playing && !bagOpen && !dead) dayTime = (dayTime + dt) % DAY_LENGTH;
   const angle = (dayTime / DAY_LENGTH) * Math.PI * 2;
@@ -1757,13 +1803,18 @@ function updateSky(dt) {
   const t = Math.max(0, Math.min(1, (sunH + 0.15) / 0.4)), smooth = t * t * (3 - 2 * t);
   daylight = (0.22 + 0.78 * smooth) * (1 - rainAmt * 0.3); // hujan memalapkan siang
   dayUniform.value = daylight;
-  skyColor.copy(SKY_NIGHT).lerp(SKY_DAY, smooth).lerp(SKY_DUSK, Math.max(0, 1 - Math.abs(sunH) / 0.3) * 0.55).lerp(SKY_RAIN, rainAmt * 0.45);
+  const dusk = Math.max(0, 1 - Math.abs(sunH) / 0.3);
+  skyColor.copy(SKY_NIGHT).lerp(SKY_DAY, smooth).lerp(SKY_DUSK, dusk * 0.7).lerp(SKY_RAIN, rainAmt * 0.45);
+  sunGlow.material.opacity = dusk * 0.9 * (1 - rainAmt * 0.7);
+  const starAmt = (1 - smooth) * (1 - rainAmt * 0.8), twinkle = performance.now() / 1000;
+  starMats[0].opacity = starAmt * (0.75 + 0.25 * Math.sin(twinkle * 1.3));
+  starMats[1].opacity = starAmt * (0.6 + 0.4 * Math.sin(twinkle * 2.1 + 2));
   scene.background.copy(skyColor);
   scene.fog.color.copy(skyColor);
   const mobLight = Math.max(0.4, daylight);
   mobMat.color.setScalar(mobLight);
   faceMat.color.setScalar(FRONT_SHADE * mobLight);
-  clouds[0].material.color.setScalar(Math.max(0.35, daylight));
+  clouds[0].material.color.setScalar(Math.max(0.35, daylight)).lerp(CLOUD_DUSK, dusk * 0.5 * (1 - rainAmt));
   sky.position.copy(camera.position);
   sky.rotation.z = angle;
 
@@ -1876,6 +1927,139 @@ function updateWeather(dt) {
     rainbow.position.set(camera.position.x, camera.position.y - 14, camera.position.z - 170);
     for (const mat of rainbowMats) mat.opacity = 0.6 * rainbowAmt;
   }
+}
+
+// ---------- Alam hidup: kelopak sakura gugur, kelip-kelip malam, bunyi ombak ----------
+const PETALS = 90, FLIES = 36, NATURE_RANGE = 15;
+const petalPos = new Float32Array(PETALS * 3).fill(-100), petalCol = new Float32Array(PETALS * 3);
+const petalWait = new Float32Array(PETALS), petalFloor = new Float32Array(PETALS), petalSpeed = new Float32Array(PETALS);
+for (let i = 0; i < PETALS; i++) petalWait[i] = Math.random() * 6;
+const petalGeo = new THREE.BufferGeometry();
+petalGeo.setAttribute('position', new THREE.BufferAttribute(petalPos, 3));
+petalGeo.setAttribute('color', new THREE.BufferAttribute(petalCol, 3));
+const petalMat = new THREE.PointsMaterial({ size: 0.15, vertexColors: true });
+const petals = new THREE.Points(petalGeo, petalMat);
+petals.frustumCulled = false;
+scene.add(petals);
+// Kelopak bermula di bawah daun paling rendah pada satu tiang block, dan gugur sampai ke tanah
+function spawnPetal(i) {
+  const x = camera.position.x + (Math.random() - 0.5) * 2 * NATURE_RANGE, z = camera.position.z + (Math.random() - 0.5) * 2 * NATURE_RANGE;
+  const bx = Math.floor(x), bz = Math.floor(z);
+  if (bx < 0 || bx >= W || bz < 0 || bz >= D) return false;
+  let y = surfaceY(bx, bz) - 1;
+  const leaf = world[idx(bx, y, bz)];
+  if (leaf !== LEAVES && leaf !== LEAVES_G) return false;
+  while (y > 0 && world[idx(bx, y - 1, bz)] === leaf) y--;
+  let floor = y;
+  while (floor > 0 && world[idx(bx, floor - 1, bz)] === AIR) floor--;
+  if (y - floor < 1) return false;
+  petalPos.set([x, y - 0.05, z], i * 3);
+  petalFloor[i] = floor + 0.05;
+  petalSpeed[i] = 0.6 + Math.random() * 0.6;
+  const shade = 0.85 + Math.random() * 0.15;
+  petalCol.set(leaf === LEAVES ? [shade, 0.62 * shade, 0.84 * shade] : [0.62 * shade, 0.88 * shade, 0.55 * shade], i * 3);
+  return true;
+}
+
+const flyPos = new Float32Array(FLIES * 3).fill(-100), flyCol = new Float32Array(FLIES * 3), flyHome = new Float32Array(FLIES * 3).fill(-999);
+const flyGeo = new THREE.BufferGeometry();
+flyGeo.setAttribute('position', new THREE.BufferAttribute(flyPos, 3));
+flyGeo.setAttribute('color', new THREE.BufferAttribute(flyCol, 3));
+const flies = new THREE.Points(flyGeo, new THREE.PointsMaterial({ size: 0.22, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+flies.frustumCulled = false;
+flies.visible = false;
+flies.renderOrder = 3;
+scene.add(flies);
+
+// Bunyi ombak: hingar lembut yang naik turun, makin kuat bila dekat dengan air
+let seaGain = null, seaLevel = 0, seaTarget = 0, seaTimer = 0;
+function seaSound(level) {
+  if (!actx) return;
+  try {
+    if (!seaGain) {
+      const buf = actx.createBuffer(1, actx.sampleRate * 2, actx.sampleRate), data = buf.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+      const src = actx.createBufferSource(), filter = actx.createBiquadFilter();
+      src.buffer = buf;
+      src.loop = true;
+      filter.type = 'lowpass';
+      filter.frequency.value = 520;
+      seaGain = actx.createGain();
+      seaGain.gain.value = 0;
+      src.connect(filter).connect(seaGain).connect(actx.destination);
+      src.start();
+    }
+    seaGain.gain.value = level;
+  } catch (e) { /* tiada audio: laut tetap senyap */ }
+}
+// 0..1: sejauh mana air terdekat dari pemain (1 = berdiri di tepi air)
+function waterNearness() {
+  let best = 0;
+  const px = Math.floor(player.x), pz = Math.floor(player.z);
+  for (const [dist, level] of [[0, 1], [3, 1], [7, 0.6], [12, 0.3]]) {
+    if (level <= best) break;
+    for (let a = 0; a < 8; a++) {
+      const x = px + Math.round(Math.cos(a * Math.PI / 4) * dist), z = pz + Math.round(Math.sin(a * Math.PI / 4) * dist);
+      if (x < 0 || x >= W || z < 0 || z >= D) continue;
+      const top = surfaceY(x, z) - 1;
+      if (world[idx(x, top, z)] === WATER && Math.abs(top - player.y) < 8) { best = level; break; }
+      if (!dist) break;
+    }
+  }
+  return best;
+}
+
+function updateNature(dt, time) {
+  const active = playing && !bagOpen && !dead;
+  const cx = camera.position.x, cz = camera.position.z;
+
+  // Kelopak dan daun gugur
+  let tries = 4;
+  for (let i = 0; i < PETALS; i++) {
+    const o = i * 3;
+    if (petalPos[o + 1] < -50) {
+      petalWait[i] -= dt;
+      if (petalWait[i] <= 0 && tries > 0) { tries--; if (!spawnPetal(i)) petalWait[i] = 0.4 + Math.random(); }
+      continue;
+    }
+    petalPos[o] += Math.sin(time * 1.4 + i) * 0.5 * dt;
+    petalPos[o + 2] += Math.cos(time * 1.1 + i * 1.7) * 0.4 * dt;
+    petalPos[o + 1] -= petalSpeed[i] * dt;
+    if (petalPos[o + 1] < petalFloor[i] || Math.abs(petalPos[o] - cx) > NATURE_RANGE + 3 || Math.abs(petalPos[o + 2] - cz) > NATURE_RANGE + 3) {
+      petalPos[o + 1] = -100;
+      petalWait[i] = Math.random() * 3;
+    }
+  }
+  petalGeo.attributes.position.needsUpdate = true;
+  petalGeo.attributes.color.needsUpdate = true;
+  petalMat.color.setScalar(Math.max(0.4, daylight));
+
+  // Kelip-kelip keluar bila malam dan tidak hujan
+  const nightAmt = Math.max(0, Math.min(1, (0.55 - daylight) / 0.25)) * (1 - rainAmt);
+  flies.visible = nightAmt > 0.01;
+  if (flies.visible) {
+    for (let i = 0; i < FLIES; i++) {
+      const o = i * 3;
+      if (Math.abs(flyHome[o] - cx) > NATURE_RANGE + 3 || Math.abs(flyHome[o + 2] - cz) > NATURE_RANGE + 3) {
+        const x = cx + (Math.random() - 0.5) * 2 * NATURE_RANGE, z = cz + (Math.random() - 0.5) * 2 * NATURE_RANGE;
+        const bx = Math.max(0, Math.min(W - 1, Math.floor(x))), bz = Math.max(0, Math.min(D - 1, Math.floor(z)));
+        flyHome.set([x, surfaceY(bx, bz) + 0.7 + Math.random() * 1.6, z], o);
+      }
+      flyPos[o] = flyHome[o] + Math.sin(time * 0.5 + i) * 1.4;
+      flyPos[o + 1] = flyHome[o + 1] + Math.sin(time * 0.8 + i * 2.3) * 0.45;
+      flyPos[o + 2] = flyHome[o + 2] + Math.cos(time * 0.4 + i * 1.3) * 1.4;
+      const glow = Math.max(0, Math.sin(time * 2.2 + i * 5.1)) * nightAmt;
+      flyCol.set([glow, glow * 0.95, glow * 0.4], o);
+    }
+    flyGeo.attributes.position.needsUpdate = true;
+    flyGeo.attributes.color.needsUpdate = true;
+  }
+
+  // Ombak
+  seaTimer -= dt;
+  if (seaTimer <= 0) { seaTimer = 0.5; seaTarget = active ? waterNearness() : 0; }
+  seaLevel += Math.max(-dt, Math.min(dt, seaTarget - seaLevel));
+  seaSound(seaLevel * 0.06 * (0.55 + 0.45 * Math.sin(time * 0.8)));
 }
 
 // ---------- Fizik ----------
@@ -5102,6 +5286,8 @@ function frame(now) {
   camera.updateMatrixWorld();
   updateSky(dt);
   updateWeather(dt);
+  timeUniform.value = time % 6283;
+  updateNature(dt, time);
   // Warna biru bila kamera berada di dalam air
   const submerged = getBlock(Math.floor(camera.position.x), Math.floor(camera.position.y), Math.floor(camera.position.z)) === WATER;
   if (submerged !== wasSubmerged) { wasSubmerged = submerged; underwaterEl.style.opacity = submerged ? 1 : 0; }
@@ -5116,7 +5302,7 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // Untuk ujian dari konsol
-window.__pink = { player, mobs, world, getBlock, setBlock, doPlace, breakBlock, get treasures() { return treasures; }, mining, inv, drops, addItem, heldId, RECIPES, craft, ITEMS, renderHotbar, damage, renderStats,
+window.__pink = { get nature() { return { petals: petalPos.filter((v, i) => i % 3 === 1 && v > -50).length, flies: flies.visible, stars: starMats[0].opacity, glow: sunGlow.material.opacity, sea: seaLevel, time: timeUniform.value }; }, player, mobs, world, getBlock, setBlock, doPlace, breakBlock, get treasures() { return treasures; }, mining, inv, drops, addItem, heldId, RECIPES, craft, ITEMS, renderHotbar, damage, renderStats,
   get health() { return health; }, set health(v) { health = v; },
   get hunger() { return hunger; }, set hunger(v) { hunger = v; },
   get dead() { return dead; }, jellies, lightAt, villagers, rides, rideSeats, boardSeat, stopRide, useShop, greet, get seatRide() { return seatRide; }, startRace, startSeek, startMatch, stopMini, best, get mini() { return mini; }, sprouts, plantSeed, tameCritter, earned, award, look: myLook, sleepInBed, launchFirework, rockets, sparks, parkSites, houseSites, houseVersion, net, avatars, netHost, netJoin, netLeave, guest, critters, GEN, UPGRADED, kickBall, interact, weather, setRain,
