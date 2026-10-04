@@ -2642,6 +2642,7 @@ function breakBlock(hit) {
   burst(hit.x, hit.y, hit.z, hit.id);
   const def = BLOCKS[hit.id];
   if (def.chest) { openChest(hit.x, hit.y, hit.z); return; }
+  if (hit.id !== STORAGE) pushUndo(hit.x, hit.y, hit.z, hit.id, AIR);
   if (mode === 'survival') {
     if (def.drops) {
       for (const [id, min, max] of def.drops) {
@@ -2683,9 +2684,69 @@ function doPlace(sx, sy) {
   if (id === STORAGE && (guest || net.role === 'guest')) { showToast('Bina peti dalam dunia sendiri.'); return; }
   if (id === AIR) { showToast('Slot kosong - pecahkan block untuk kumpul'); return; }
   if (ITEMS[id]) { showToast(ITEMS[id].tool ? 'Ini alat - guna butang pecah pada block' : 'Ini bahan - buka Beg untuk buat sesuatu'); return; }
+  pushUndo(x, y, z, world[idx(x, y, z)], id);
   setBlock(x, y, z, id);
   consumeHeld();
   beep(420, 0.06, 'triangle', 0.07);
+}
+
+// ---------- Undur: batalkan letak / pecah block yang terakhir ----------
+const undoStack = [];
+const undoBtn = document.getElementById('undoBtn');
+function pushUndo(x, y, z, before, after) {
+  undoStack.push({ x, y, z, before, after });
+  if (undoStack.length > 30) undoStack.shift();
+  undoBtn.hidden = false;
+}
+function undo() {
+  if (!playing || bagOpen || dead) return;
+  const u = undoStack.pop();
+  undoBtn.hidden = !undoStack.length;
+  if (!u) return;
+  if (world[idx(u.x, u.y, u.z)] !== u.after) { showToast('Block itu sudah berubah - tak boleh undur'); return; }
+  const broke = u.after === AIR;
+  if (broke && u.x + 1 > player.x - player.hw && u.x < player.x + player.hw && u.z + 1 > player.z - player.hw && u.z < player.z + player.hw &&
+      u.y + 1 > player.y && u.y < player.y + player.h) { showToast('Awak berdiri di tempat block itu - undur dibatalkan'); return; }
+  if (mode === 'survival') {
+    if (broke) {
+      // Block yang dipecahkan diambil semula dari beg, supaya undur tidak menggandakan block
+      const def = BLOCKS[u.before], item = def.drops ? 0 : def.drop || u.before;
+      const i = item ? inv.findIndex((it) => it && it.id === item) : -1;
+      if (i < 0) { showToast('Block itu tiada dalam beg - tak boleh undur'); return; }
+      if (--inv[i].count <= 0) inv[i] = null;
+      renderHotbar();
+    } else {
+      if (!addItem(u.after)) spawnDrop(u.x, u.y, u.z, u.after); // beg penuh: block jatuh di situ
+    }
+  }
+  setBlock(u.x, u.y, u.z, u.before);
+  beep(520, 0.06, 'triangle', 0.07);
+  setTimeout(() => beep(390, 0.08, 'triangle', 0.07), 70);
+  showToast(broke ? 'Undur: block dipulihkan' : 'Undur: block dibuang');
+}
+undoBtn.onclick = undo;
+
+// Pratonton: bayang block yang dipegang di tempat ia akan diletak
+const ghostMat = new THREE.MeshBasicMaterial({ map: atlas, vertexColors: true, transparent: true, opacity: 0.5, depthWrite: false });
+const ghost = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), ghostMat);
+ghost.scale.setScalar(4.03); // geometri drop bersaiz 0.25 block
+ghost.visible = false;
+ghost.renderOrder = 2;
+scene.add(ghost);
+function updateGhost(target, time) {
+  ghost.visible = false;
+  const id = heldId();
+  if (!target || !target.face || id === AIR || ITEMS[id] || !BLOCKS[id] || holdPoint || padMining || mouseMining) return;
+  const tdef = BLOCKS[target.id];
+  if (tdef.chest || tdef.gives || target.id === STORAGE || target.id === SOFA || target.id === WARDROBE || target.id === GLOW || target.id === GLOW_OFF) return;
+  const x = target.x + target.face[0], y = target.y + target.face[1], z = target.z + target.face[2];
+  if (!inBounds(x, y, z) || (world[idx(x, y, z)] !== AIR && world[idx(x, y, z)] !== WATER)) return;
+  if (x + 1 > player.x - player.hw && x < player.x + player.hw && z + 1 > player.z - player.hw && z < player.z + player.hw &&
+      y + 1 > player.y && y < player.y + player.h) return;
+  ghost.geometry = dropGeo(id);
+  ghost.position.set(x + 0.5, y + 0.5, z + 0.5);
+  ghostMat.opacity = 0.45 + 0.12 * Math.sin(time * 4);
+  ghost.visible = true;
 }
 
 // ---------- Interaksi dengan haiwan, Jeli dan bola ----------
@@ -4810,6 +4871,7 @@ window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
   if (!playing) return;
   if (e.code === 'KeyF' && !e.repeat && !bagOpen && !dead) { toggleFlight(); return; }
+  if (e.code === 'KeyZ' && !e.repeat) { undo(); return; }
   if (e.code === 'KeyE' && !dead) { if (!e.repeat) setBag(!bagOpen); return; }
   if (bagOpen) return;
   keys[e.code] = true;
@@ -5295,6 +5357,7 @@ function frame(now) {
   const target = updateMining(dt);
   highlight.visible = !!target;
   if (target) highlight.position.set(target.x + 0.5, target.y + 0.5, target.z + 0.5);
+  updateGhost(target, time);
 
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
@@ -5302,7 +5365,7 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // Untuk ujian dari konsol
-window.__pink = { get nature() { return { petals: petalPos.filter((v, i) => i % 3 === 1 && v > -50).length, flies: flies.visible, stars: starMats[0].opacity, glow: sunGlow.material.opacity, sea: seaLevel, time: timeUniform.value }; }, player, mobs, world, getBlock, setBlock, doPlace, breakBlock, get treasures() { return treasures; }, mining, inv, drops, addItem, heldId, RECIPES, craft, ITEMS, renderHotbar, damage, renderStats,
+window.__pink = { undo, undoStack, ghost, get nature() { return { petals: petalPos.filter((v, i) => i % 3 === 1 && v > -50).length, flies: flies.visible, stars: starMats[0].opacity, glow: sunGlow.material.opacity, sea: seaLevel, time: timeUniform.value }; }, player, mobs, world, getBlock, setBlock, doPlace, breakBlock, get treasures() { return treasures; }, mining, inv, drops, addItem, heldId, RECIPES, craft, ITEMS, renderHotbar, damage, renderStats,
   get health() { return health; }, set health(v) { health = v; },
   get hunger() { return hunger; }, set hunger(v) { hunger = v; },
   get dead() { return dead; }, jellies, lightAt, villagers, rides, rideSeats, boardSeat, stopRide, useShop, greet, get seatRide() { return seatRide; }, startRace, startSeek, startMatch, stopMini, best, get mini() { return mini; }, sprouts, plantSeed, tameCritter, earned, award, look: myLook, sleepInBed, launchFirework, rockets, sparks, parkSites, houseSites, houseVersion, net, avatars, netHost, netJoin, netLeave, guest, critters, GEN, UPGRADED, kickBall, interact, weather, setRain,

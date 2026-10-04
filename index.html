@@ -262,6 +262,7 @@
 #craftSection {margin-top:12px;text-align:left;} #craftSection summary {cursor:pointer;padding:12px;background:#ffeeb0;border:3px solid var(--frame);}
 #bag .card > #bagClose {position:sticky;bottom:0;z-index:1;}
 #flyToggle,#flyDown {position:fixed;z-index:3;right:calc(12px + env(safe-area-inset-right));top:calc(68px + env(safe-area-inset-top));padding:10px;border:3px solid #4a1d3a;background:#ffeeb0;color:#4a1d3a;font:inherit;touch-action:none;} #flyDown {top:calc(122px + env(safe-area-inset-top));} #flyToggle[hidden],#flyDown[hidden]{display:none;}
+#undoBtn {position:fixed;z-index:3;right:calc(12px + env(safe-area-inset-right));top:calc(176px + env(safe-area-inset-top));padding:10px;border:3px solid #4a1d3a;background:#ffd6ec;color:#4a1d3a;font:inherit;touch-action:none;} #undoBtn[hidden]{display:none;}
 .lookChoices {display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:8px 0;} #lookName {box-sizing:border-box;width:100%;padding:10px;font:inherit;}
 </style>
 </head>
@@ -284,7 +285,7 @@
   <button id="padB" class="pb">B<small>pecah</small></button>
   <button id="jump" class="pb">A<small>lompat</small></button>
 </div>
-<button id="flyToggle" hidden>Terbang: OFF</button><button id="flyDown" hidden>Turun ↓</button>
+<button id="flyToggle" hidden>Terbang: OFF</button><button id="flyDown" hidden>Turun ↓</button><button id="undoBtn" hidden>Undur ↶</button>
 <button id="bagBtn">Beg</button>
 <button id="menuBtn" aria-label="Menu">&#9776;</button>
 
@@ -321,6 +322,7 @@
     <h1>Humaira &amp; Alisa Craft</h1>
     <p id="tips"></p>
     <p>Tekan <b>X</b> / klik kanan pada sofa untuk duduk, lampu pink untuk hidup/padam, atau almari untuk tukar rupa. Mod Kreatif: <b>Terbang</b>, A naik, butang Turun untuk turun. Komputer: F, Space dan Shift.</p>
+    <p>Tersalah letak atau pecah block? Tekan <b>Undur ↶</b> (komputer: Z). Bayang block menunjukkan tempat block akan diletak.</p>
     <p>Beri <b>Epal Sakura</b> pada Pinky untuk jadikan ia kawan, kemudian tekan padanya untuk tunggang!</p>
     <p id="oldWorld" hidden>Dunia ini versi lama, belum ada pantai, padang bola dan taman permainan. Tekan <b>Naik Taraf Dunia</b> untuk tambah semuanya dan kekalkan binaan awak.</p>
     <button id="install" hidden>Pasang Aplikasi</button>
