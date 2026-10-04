@@ -597,7 +597,12 @@ const ZONES = [FIELD_ZONE, PLAY_ZONE];
 const WATER_ZONE = { x0: 108, x1: 150, z0: 20, z1: 62, y: 17 };
 const VILLAGE_ZONE = { x0: 104, x1: 150, z0: 100, z1: 140, y: 17 };
 const THEME_ZONE = { x0: 44, x1: 90, z0: 112, z1: 150, y: 17 };
-const NEW_ZONES = [WATER_ZONE, VILLAGE_ZONE, THEME_ZONE];
+// Tapak rata kecil untuk pintu masuk Gua Kristal (guanya sendiri di bawah tanah, di selatan pintu ini)
+const CAVE_ZONE = { x0: 166, x1: 176, z0: 46, z1: 56, y: 20 };
+const CAVE = { x: 171, y: 9, z: 86, rx: 13, ry: 6, rz: 12, floor: 5 };
+// Pulau Rumah Api di tengah laut, di selatan dunia asal
+const ISLAND = { x: 7, z: 132, r: 7 };
+const NEW_ZONES = [WATER_ZONE, VILLAGE_ZONE, THEME_ZONE, CAVE_ZONE];
 const ALL_ZONES = ZONES.concat(NEW_ZONES);
 const inOldWorld = (x, z) => x < OW && z < OD;
 // Tema tanah baru: pink dan hijau alam bersama. Dunia asal kekal pink.
@@ -689,6 +694,8 @@ function generateWorld(seed) {
   buildWaterPark();
   buildVillage();
   buildThemePark();
+  buildCave(seed);
+  if (GEN === 2) buildIsland();
   generateOres(seed);
   placeChests(seed);
 }
@@ -847,6 +854,141 @@ function buildThemePark() {
   fillBox(65, f + 1, 112, 65, f + 4, 112, BLUE);
   fillBox(69, f + 1, 112, 69, f + 4, 112, BLUE);
   fillBox(65, f + 5, 112, 69, f + 5, 112, RAINBOW);
+}
+// Gua Kristal: pintu gerbang di permukaan, tangga menurun ke selatan, dan satu gua besar di bawah tanah
+// dengan dinding berbijih, tiang kristal bercahaya, kolam, dan tiga peti harta di hujungnya
+function buildCave(seed) {
+  const rnd = mulberry32(seed + 101), c = CAVE, f = CAVE_ZONE.y;
+  fillBox(CAVE_ZONE.x0, f + 1, CAVE_ZONE.z0, CAVE_ZONE.x1, f + 10, CAVE_ZONE.z1, AIR);
+  fillBox(169, f + 1, 56, 169, f + 4, 56, CRYSTAL_BLOCK);
+  fillBox(173, f + 1, 56, 173, f + 4, 56, CRYSTAL_BLOCK);
+  fillBox(169, f + 5, 56, 173, f + 5, 56, CRYSTAL_BLOCK);
+  // Tangga: setiap langkah ke selatan turun satu block; dinding dan bumbung ditambah di mana tanah terbuka
+  const steps = f - c.floor;
+  for (let i = 0; i <= steps; i++) {
+    const z = 57 + i, y = f - i;
+    for (let x = 169; x <= 173; x++) {
+      for (let yy = y; yy <= y + 5; yy++) {
+        const wall = x === 169 || x === 173 || yy === y || (yy === y + 5 && i >= 4);
+        if (wall) { if (world[idx(x, yy, z)] === AIR || yy === y) world[idx(x, yy, z)] = STONE; }
+        else world[idx(x, yy, z)] = AIR;
+      }
+    }
+    if (i % 4 === 2) world[idx(171, y, z)] = GLOW; // lampu di lantai tangga
+  }
+  // Lorong pendek dari kaki tangga ke gua
+  fillBox(170, c.floor + 1, 58 + steps, 172, c.floor + 4, 76, AIR);
+  // Gua: elipsoid, tak menembusi permukaan
+  const inside = (x, y, z) => ((x - c.x) / c.rx) ** 2 + ((y - c.y) / c.ry) ** 2 + ((z - c.z) / c.rz) ** 2 <= 1;
+  for (let z = c.z - c.rz; z <= c.z + c.rz; z++) {
+    for (let x = c.x - c.rx; x <= c.x + c.rx; x++) {
+      const top = surfaceY(x, z) - 4;
+      for (let y = c.floor + 1; y <= c.y + c.ry && y < top; y++) if (inside(x, y, z)) world[idx(x, y, z)] = AIR;
+    }
+  }
+  // Dinding, lantai dan siling: tompok bijih dan kristal bercahaya
+  for (let z = c.z - c.rz - 1; z <= c.z + c.rz + 1; z++) {
+    for (let x = c.x - c.rx - 1; x <= c.x + c.rx + 1; x++) {
+      for (let y = c.floor; y <= c.y + c.ry + 1; y++) {
+        if (world[idx(x, y, z)] !== STONE && world[idx(x, y, z)] !== DIRT) continue;
+        const open = getBlock(x + 1, y, z) === AIR || getBlock(x - 1, y, z) === AIR || getBlock(x, y + 1, z) === AIR ||
+          getBlock(x, y - 1, z) === AIR || getBlock(x, y, z + 1) === AIR || getBlock(x, y, z - 1) === AIR;
+        if (!open) continue;
+        const roll = rnd();
+        world[idx(x, y, z)] = roll < 0.1 ? CRYSTAL_ORE : roll < 0.15 ? GOLD_ORE : roll < 0.18 ? GEM_ORE : roll < 0.23 ? CRYSTAL_BLOCK : STONE;
+      }
+    }
+  }
+  // Tiang kristal dari lantai dan dari siling
+  for (let i = 0; i < 26; i++) {
+    const x = c.x + Math.round((rnd() - 0.5) * 2 * (c.rx - 2)), z = c.z + Math.round((rnd() - 0.5) * 2 * (c.rz - 2)), tall = 1 + Math.floor(rnd() * 3);
+    if (Math.abs(x - c.x) < 2 || world[idx(x, c.floor + 1, z)] !== AIR) continue; // laluan tengah dibiarkan lapang
+    if (i % 2) {
+      fillBox(x, c.floor + 1, z, x, c.floor + tall, z, CRYSTAL_BLOCK);
+      world[idx(x, c.floor + tall + 1, z)] = GLASS;
+    } else {
+      let y = c.floor + 1;
+      while (y < H - 1 && world[idx(x, y, z)] === AIR) y++;
+      for (let k = 1; k <= tall && world[idx(x, y - k, z)] === AIR && y - k > c.floor + 3; k++) world[idx(x, y - k, z)] = CRYSTAL_BLOCK;
+    }
+  }
+  // Kolam, lampu laluan, dan pentas harta di hujung selatan
+  for (let dz = -3; dz <= 3; dz++) for (let dx = -3; dx <= 3; dx++) {
+    if (Math.hypot(dx, dz) > 3.2 || world[idx(c.x - 7 + dx, c.floor + 1, c.z + 2 + dz)] !== AIR) continue;
+    world[idx(c.x - 7 + dx, c.floor, c.z + 2 + dz)] = WATER;
+    world[idx(c.x - 7 + dx, c.floor - 1, c.z + 2 + dz)] = BLUE;
+  }
+  for (let z = 76; z <= c.z + c.rz - 4; z += 4) world[idx(c.x, c.floor, z)] = GLOW;
+  const end = c.z + c.rz - 3;
+  fillBox(c.x - 3, c.floor, end - 1, c.x + 3, c.floor, end + 1, LINE);
+  fillBox(c.x - 3, c.floor + 1, end - 1, c.x + 3, c.floor + 4, end + 1, AIR);
+  for (const dx of [-2, 0, 2]) world[idx(c.x + dx, c.floor + 1, end)] = CHEST;
+  world[idx(c.x - 1, c.floor, end)] = GLOW;
+  world[idx(c.x + 1, c.floor, end)] = GLOW;
+}
+// Rumah api 5 x 5 berjalur, dengan tangga pusing di dalam, pelantar berpagar dan lampu di puncak. Pintu di timur.
+function lighthouse(x0, f, z0) {
+  const x1 = x0 + 4, z1 = z0 + 4, cx = x0 + 2, cz = z0 + 2, deck = f + 15;
+  fillBox(x0, f, z0, x1, f, z1, LINE);
+  fillBox(x0 + 1, f + 1, z0 + 1, x1 - 1, deck - 1, z1 - 1, AIR);
+  for (let y = f + 1; y < deck; y++) {
+    for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
+      if (x === x0 || x === x1 || z === z0 || z === z1) world[idx(x, y, z)] = Math.floor((y - f - 1) / 3) % 2 ? LINE : CANDY;
+    }
+    world[idx(cx, y, cz)] = (y - f) % 5 === 0 ? GLOW : PLANKS;
+  }
+  const RING = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
+  const steps = deck - f - 1;
+  for (let i = 1; i <= steps; i++) world[idx(cx + RING[i % 8][0], f + i, cz + RING[i % 8][1])] = PLANKS;
+  fillBox(x1, f + 1, cz, x1, f + 2, cz, AIR);
+  for (const y of [f + 5, f + 10]) { world[idx(x0, y, cz)] = GLASS; world[idx(cx, y, z0)] = GLASS; world[idx(cx, y, z1)] = GLASS; }
+  // Pelantar dengan lubang tempat tangga sampai
+  fillBox(x0 - 1, deck, z0 - 1, x1 + 1, deck, z1 + 1, LINE);
+  for (const i of [steps - 1, steps]) world[idx(cx + RING[i % 8][0], deck, cz + RING[i % 8][1])] = AIR;
+  for (let z = z0 - 1; z <= z1 + 1; z++) for (let x = x0 - 1; x <= x1 + 1; x++) {
+    if (x === x0 - 1 || x === x1 + 1 || z === z0 - 1 || z === z1 + 1) world[idx(x, deck + 1, z)] = GLASS;
+  }
+  // Lampu rumah api dan bumbung
+  fillBox(cx, deck, cz, cx, deck + 1, cz, CRYSTAL_BLOCK);
+  fillBox(cx, deck + 2, cz, cx, deck + 3, cz, GLOW);
+  for (const [x, z] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]]) fillBox(x, deck + 1, z, x, deck + 3, z, LINE);
+  fillBox(x0, deck + 4, z0, x1, deck + 4, z1, BRICK);
+  fillBox(x0 + 1, deck + 5, z0 + 1, x1 - 1, deck + 5, z1 - 1, BRICK);
+  world[idx(cx, deck + 6, cz)] = GOLD_BLOCK;
+}
+// Pulau Rumah Api: pulau pasir dengan rumah api, pokok kelapa, harta, dan dua jeti untuk bot
+function buildIsland() {
+  const { x: ix, z: iz, r } = ISLAND;
+  for (let dz = -r; dz <= r; dz++) {
+    for (let dx = -r; dx <= r; dx++) {
+      const x = ix + dx, z = iz + dz, d = Math.hypot(dx, dz);
+      if (d > r + 0.4 || !inBounds(x, 1, z)) continue;
+      const top = d < 4.5 ? SEA_LEVEL + 2 : SEA_LEVEL + 1;
+      for (let y = 1; y <= top; y++) if (world[idx(x, y, z)] === WATER || world[idx(x, y, z)] === AIR) world[idx(x, y, z)] = SAND;
+      if (d < 4.5) world[idx(x, top, z)] = GRASS;
+      fillBox(x, top + 1, z, x, top + 4, z, AIR);
+    }
+  }
+  const f = SEA_LEVEL + 2;
+  lighthouse(ix - 2, f, iz - 2);
+  for (const [x, z] of [[ix - 5, iz + 3], [ix + 4, iz - 5]]) {
+    if (!inBounds(x - 3, 1, z - 3)) continue;
+    const y = SEA_LEVEL + 2, top = y + 4;
+    fillBox(x, y, z, x, top, z, LOG);
+    world[idx(x, top + 1, z)] = PALM;
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      if (!inBounds(x + dx * 2, 1, z + dz * 2)) continue;
+      world[idx(x + dx, top + 1, z + dz)] = PALM;
+      world[idx(x + dx * 2, top + 1, z + dz * 2)] = PALM;
+    }
+  }
+  world[idx(ix + 4, SEA_LEVEL + 2, iz + 4)] = CHEST;
+  world[idx(ix - 4, SEA_LEVEL + 1, iz - 5)] = SAND_X;
+  world[idx(ix - 4, SEA_LEVEL - 1, iz - 5)] = CHEST;
+  // Jeti pulau dan jeti tanah besar, satu block di atas air
+  fillBox(ix + r + 1, SEA_LEVEL + 1, iz, ix + r + 2, SEA_LEVEL + 1, iz, PLANKS);
+  fillBox(27, SEA_LEVEL + 1, iz, 34, SEA_LEVEL + 1, iz, PLANKS);
+  fillBox(27, SEA_LEVEL + 2, iz, 34, SEA_LEVEL + 5, iz, AIR);
 }
 // Naik taraf: bina semula hanya lajur yang berbeza antara dunia lama dan baru (laut, pantai, padang, taman).
 // Lajur lain kekal sama, jadi pokok dan binaan pemain di situ tak terusik.
@@ -2727,6 +2869,9 @@ if (parkSites.pen) addSign('Kandang Pinky', 3.2, 1, parkSites.pen[0] + 5.5, park
 addSign('Kampung Ceria', 4.6, 1.44, 127.5, VILLAGE_ZONE.y + 5.5, 99.96, Math.PI);
 addSign('Kedai Aiskrim', 4, 1.25, 127.5, VILLAGE_ZONE.y + 4.5, 126.96, Math.PI);
 addSign('Taman Tema', 4.6, 1.44, 67.5, THEME_ZONE.y + 5.5, 111.96, Math.PI);
+addSign('Gua Kristal', 4, 1.25, 171.5, CAVE_ZONE.y + 5.5, 55.96, Math.PI);
+// Papan rumah api menghadap timur, ke arah tanah besar
+if (GEN === 2) addSign('Pulau Rumah Api', 3.6, 1.12, ISLAND.x + 3.04, SEA_LEVEL + 6, ISLAND.z + 0.5, Math.PI / 2);
 addSign('Taman Tema Air', 4.6, 1.44, 129.5, WATER_ZONE.y + 5.5, WATER_ZONE.z1 + 1.04);
 if (parkSites.tower) addSign('Menara Tinjau', 3.2, 1, parkSites.tower[0] + 2.5, parkSites.tower[1] + 3.8, parkSites.tower[2] + TOWER_SIZE + 0.04);
 
@@ -3563,6 +3708,8 @@ const STICKERS = [
   { id: 'keretapi', icon: '\u{1F682}', name: 'Tut Tut!', hint: 'Naik kereta api di Taman Tema' },
   { id: 'aiskrim', icon: '\u{1F366}', name: 'Manisnya', hint: 'Ambil aiskrim di Kampung Ceria' },
   { id: 'penduduk', icon: '\u{1F44B}', name: 'Hai Jiran!', hint: 'Sapa penduduk Kampung Ceria' },
+  { id: 'gua', icon: '\u{1F52E}', name: 'Penjelajah Gua', hint: 'Masuk ke Gua Kristal' },
+  { id: 'pulau', icon: '\u{1F3DD}\uFE0F', name: 'Sampai ke Pulau', hint: 'Jejak kaki di Pulau Rumah Api' },
 ];
 const FURNITURE = new Set([BED_HEAD, BED_FOOT, SOFA, TABLE, TV, KITCHEN, WARDROBE, SHELF, RUG, PAINT_PINKY, PAINT_RAINBOW, FLOWERS, FENCE]);
 const earned = new Set(Array.isArray(save.stickers) ? save.stickers.filter((id) => STICKERS.some((st) => st.id === id)) : []);
@@ -4285,6 +4432,37 @@ function boardSeat(seat) {
   scene.add(root);
   rides.push(ride);
 }
+// Bot: berulang-alik antara jeti pulau dan jeti tanah besar, berhenti sekejap di setiap hujung
+if (GEN === 2) {
+  const y = SEA_LEVEL + 1, z = ISLAND.z + 0.5, xa = ISLAND.x + ISLAND.r + 3.6, xb = 25.6;
+  const ride = { name: 'Bot', clock: 0, exit: [ISLAND.x + ISLAND.r + 2, SEA_LEVEL + 2, z] };
+  const g = new THREE.Group();
+  const hull = makeBox(2.6, 0.6, 1.5, 0x9b6a3c);
+  hull.position.y = 0.2;
+  const mast = makeBox(0.14, 2, 0.14, 0x7d5230);
+  mast.position.set(0.3, 1.4, 0);
+  const sail = makeBox(1.2, 1.3, 0.08, 0xff7fbf);
+  sail.position.set(-0.35, 1.6, 0);
+  g.add(hull, mast, sail);
+  scene.add(g);
+  const seat = addSeat(ride, g);
+  ride.update = (dt, time) => {
+    // Kitaran 14 saat: 4 saat belayar, 3 saat berhenti, 4 saat balik, 3 saat berhenti
+    ride.clock = (ride.clock + dt) % 14;
+    const t = ride.clock, k = t < 4 ? t / 4 : t < 7 ? 1 : t < 11 ? 1 - (t - 7) / 4 : 0;
+    const x = xa + (xb - xa) * (k * k * (3 - 2 * k));
+    g.position.set(x, y + Math.sin(time * 2) * 0.05, z);
+    seat.x = x; seat.y = y + 0.5; seat.z = z;
+    // Turun di jeti yang paling hampir
+    ride.exit = x < (xa + xb) / 2 ? [ISLAND.x + ISLAND.r + 2, SEA_LEVEL + 2, z] : [27.5, SEA_LEVEL + 2, z];
+  };
+  rides.push(ride);
+  // Sinar rumah api: berpusing waktu malam
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(26, 0.5, 0.5), new THREE.MeshBasicMaterial({ color: 0xfff3a0, transparent: true, opacity: 0.45, fog: false, depthWrite: false }));
+  beam.position.set(ISLAND.x + 0.5, SEA_LEVEL + 2 + 17.5, ISLAND.z + 0.5);
+  scene.add(beam);
+  rides.push({ name: 'Sinar', update: (dt, time) => { beam.visible = daylight < 0.6; beam.rotation.y = time * 0.6; } });
+}
 // Kereta api: kepala dan dua gerabak mengikut landasan segi empat
 {
   const f = THEME_ZONE.y, x0 = 47.5, z0 = 115.5, x1 = 87.5, z1 = 147.5, wide = x1 - x0, deep = z1 - z0, total = 2 * (wide + deep);
@@ -4333,6 +4511,9 @@ function boardSeat(seat) {
 function updateParks(dt) {
   const time = performance.now() / 1000;
   for (const ride of rides) ride.update(dt, time);
+  // Pelekat tempat: dalam gua, dan di atas pulau
+  if (player.y < CAVE.y + CAVE.ry && ((player.x - CAVE.x) / CAVE.rx) ** 2 + ((player.z - CAVE.z) / CAVE.rz) ** 2 < 1) award('gua');
+  if (GEN === 2 && player.y > SEA_LEVEL + 1 && Math.hypot(player.x - ISLAND.x - 0.5, player.z - ISLAND.z - 0.5) < ISLAND.r) award('pulau');
   for (const v of villagers) updateVillager(v, dt);
 }
 
