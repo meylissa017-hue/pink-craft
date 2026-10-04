@@ -9,7 +9,8 @@ const EYE = 1.62;
 
 // ---------- Block ----------
 const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, LOG = 4, LEAVES = 5, BRICK = 6, PLANKS = 7,
-  HEART = 8, CANDY = 9, GLOW = 10, GLASS = 11, BEDROCK = 12;
+  HEART = 8, CANDY = 9, GLOW = 10, GLASS = 11, BEDROCK = 12,
+  SAND = 13, WATER = 14, FIELD = 15, LINE = 16, NET = 17, TRAMP = 18, PALM = 19, RAINBOW = 20, YELLOW = 21, BLUE = 22;
 
 // tiles: [atas, bawah, sisi] — nombor petak dalam atlas 4x4; hard: saat untuk pecahkan dengan tangan; tool: alat yang mempercepat
 const BLOCKS = {
@@ -25,6 +26,18 @@ const BLOCKS = {
   [GLOW]: { name: 'Pink Glow Block', hard: 0.6, tool: 'pick', tiles: [11, 11, 11], glow: true },
   [GLASS]: { name: 'Pink Glass', hard: 0.3, tiles: [12, 12, 12], transparent: true },
   [BEDROCK]: { name: 'Bedrock', hard: Infinity, tiles: [13, 13, 13] },
+  [SAND]: { name: 'Pasir', hard: 0.5, tool: 'shovel', tiles: [14, 14, 14] },
+  // liquid: boleh dilalui dan direnangi, tak boleh dipecahkan
+  [WATER]: { name: 'Air', hard: Infinity, tiles: [15, 15, 15], transparent: true, liquid: true },
+  [FIELD]: { name: 'Rumput Padang', hard: 0.6, tool: 'shovel', tiles: [16, 16, 16] },
+  [LINE]: { name: 'Block Putih', hard: 0.6, tiles: [17, 17, 17] },
+  [NET]: { name: 'Jaring Gol', hard: 0.3, tiles: [18, 18, 18], transparent: true },
+  // bounce: melambungkan apa saja yang mendarat di atasnya
+  [TRAMP]: { name: 'Trampolin', hard: 0.8, tiles: [19, 20, 20], bounce: true },
+  [PALM]: { name: 'Daun Kelapa', hard: 0.25, tiles: [21, 21, 21] },
+  [RAINBOW]: { name: 'Block Pelangi', hard: 0.8, tiles: [22, 22, 22] },
+  [YELLOW]: { name: 'Block Kuning', hard: 0.8, tiles: [23, 23, 23] },
+  [BLUE]: { name: 'Block Biru', hard: 0.8, tiles: [24, 24, 24] },
 };
 const HOTBAR = [GRASS, STONE, BRICK, PLANKS, HEART, CANDY, GLOW, GLASS, LEAVES];
 
@@ -164,13 +177,26 @@ const TILES = [
     return 'ffb3dc5a';
   },
   (x, y) => pick(x, y, 7, ['6b5673', '5a4662', '7b6684']),
+  (x, y) => pick(x, y, 8, ['ffe9c4', 'ffe9c4', 'ffdcae', 'fff2d6']),
+  (x, y) => ((x + y * 2) % 8 === 0 || (x * 3 + y) % 11 === 0 ? 'c4f0ffc8' : '6fd0f5b4'),
+  (x, y) => (x < 8 ? '74d07a' : '66c46e'),
+  (x, y) => pick(x, y, 9, ['ffffff', 'ffffff', 'f2f2f8']),
+  (x, y) => (x % 4 === 0 || y % 4 === 0 ? 'ffffff' : 'ffffff30'),
+  (x, y) => (edge(x, y) ? '5b6ee1' : Math.hypot(x - 7.5, y - 7.5) < 3 ? 'ffe14f' : '3a3f5c'),
+  (x, y) => (y < 5 ? '5b6ee1' : x % 4 === 0 ? 'c7c7d6' : '8a8fb0'),
+  (x, y) => pick(x, y, 10, ['5fd08a', '5fd08a', '49bd77', '7fe0a4']),
+  (x, y) => ['ff6b6b', 'ffb347', 'ffe14f', '6de38a', '6fb7ff', 'c58cff'][Math.floor(y * 6 / 16)],
+  (x, y) => (edge(x, y) ? 'f0c020' : pick(x, y, 11, ['ffe14f', 'ffe14f', 'ffd633'])),
+  (x, y) => (edge(x, y) ? '4a90e0' : pick(x, y, 12, ['6fb7ff', '6fb7ff', '5aa6f0'])),
 ];
+const ATLAS_ROWS = 8; // atlas 4 lajur x 8 baris petak 16x16
 
 function makeAtlas() {
   const c = document.createElement('canvas');
-  c.width = c.height = 64;
+  c.width = 64;
+  c.height = ATLAS_ROWS * 16;
   const ctx = c.getContext('2d');
-  const img = ctx.createImageData(64, 64);
+  const img = ctx.createImageData(64, ATLAS_ROWS * 16);
   TILES.forEach((fn, t) => {
     const ox = (t % 4) * 16, oy = (t >> 2) * 16;
     for (let y = 0; y < 16; y++) {
@@ -204,7 +230,9 @@ function loadSave() {
   } catch (e) { saveWarning = 'Simpanan tidak dapat dibaca. Dunia sementara dibuka; simpanan asal tidak akan ditindih.'; }
   return null;
 }
-const save = loadSave() || { seed: (Math.random() * 2147483647) | 0, edits: [], player: null };
+const save = loadSave() || { seed: (Math.random() * 2147483647) | 0, gen: 2, edits: [], player: null };
+// Versi penjanaan dunia: simpanan lama tiada medan ini dan kekal dengan rupa bumi lama
+const GEN = save.gen === 2 ? 2 : 1;
 const edits = new Map();
 let saveDirty = false;
 const saveStatus = document.getElementById('saveStatus');
@@ -216,8 +244,9 @@ function writeSave() {
   edits.forEach((id, i) => flat.push(i, id));
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
-      seed: save.seed, edits: flat,
+      seed: save.seed, gen: GEN, edits: flat,
       player: [player.x, player.y, player.z, yaw, pitch], slot: selected,
+      pets: mobs.filter((m) => m.tame).map((m) => [Math.round(m.x * 10) / 10, Math.round(m.y * 10) / 10, Math.round(m.z * 10) / 10]),
       mode, controls: consoleMode ? 'console' : 'touch', health, hunger, time: Math.round(dayTime), inv: inv.map((it) => (it ? (it.dur ? [it.id, it.count, it.dur] : [it.id, it.count]) : 0)),
     }));
     saveDirty = false;
@@ -238,21 +267,52 @@ const getBlock = (x, y, z) => (inBounds(x, y, z) ? world[idx(x, y, z)] : AIR);
 function isSolid(x, y, z) {
   if (y >= H) return false;
   if (x < 0 || x >= W || z < 0 || z >= D || y < 0) return true;
-  return world[idx(x, y, z)] !== AIR;
+  const id = world[idx(x, y, z)];
+  return id !== AIR && id !== WATER;
 }
 
+// GEN 1 = dunia lama (bukit dan pokok sahaja).
+// GEN 2 = tambah laut dan pantai di barat, padang bola di timur, taman permainan di selatan.
+const SEA_LEVEL = 13;
+const FIELD_ZONE = { x0: 60, x1: 84, z0: 40, z1: 56, y: 17 }; // y = aras block paling atas
+const PLAY_ZONE = { x0: 40, x1: 56, z0: 66, z1: 82, y: 17 };
+const ZONES = [FIELD_ZONE, PLAY_ZONE];
+const zoneDist = (zn, x, z) => Math.max(zn.x0 - x, x - zn.x1, zn.z0 - z, z - zn.z1, 0);
+function terrainHeight(x, z, seed) {
+  let h = 12 + valueNoise(x / 28, z / 28, seed) * 10 + valueNoise(x / 10, z / 10, seed + 1) * 4;
+  if (GEN === 2) {
+    // Tanah menurun ke laut di sebelah barat
+    const t = Math.max(0, Math.min(1, (36 - x) / 20)), sea = t * t * (3 - 2 * t);
+    h = h * (1 - sea) + 8 * sea;
+    // Ratakan tanah di padang dan taman, dengan cerun landai di sekeliling
+    for (const zn of ZONES) {
+      const w = Math.max(0, 1 - zoneDist(zn, x, z) / 5);
+      h = h * (1 - w) + (zn.y + 0.5) * w;
+    }
+  }
+  return Math.floor(h);
+}
+function fillBox(x0, y0, z0, x1, y1, z1, id) {
+  for (let y = y0; y <= y1; y++)
+    for (let z = z0; z <= z1; z++)
+      for (let x = x0; x <= x1; x++)
+        if (inBounds(x, y, z)) world[idx(x, y, z)] = id;
+}
 function generateWorld(seed) {
   for (let z = 0; z < D; z++) {
     for (let x = 0; x < W; x++) {
-      const h = Math.floor(12 + valueNoise(x / 28, z / 28, seed) * 10 + valueNoise(x / 10, z / 10, seed + 1) * 4);
+      const h = terrainHeight(x, z, seed);
+      const beach = GEN === 2 && x < 40 && h <= SEA_LEVEL + 1;
       for (let y = 0; y <= h; y++) {
-        world[idx(x, y, z)] = y === 0 ? BEDROCK : y < h - 3 ? STONE : y < h ? DIRT : GRASS;
+        world[idx(x, y, z)] = y === 0 ? BEDROCK : y < h - 3 ? STONE : beach ? SAND : y < h ? DIRT : GRASS;
       }
+      if (GEN === 2) for (let y = h + 1; y <= SEA_LEVEL; y++) world[idx(x, y, z)] = WATER;
     }
   }
   const rnd = mulberry32(seed);
   for (let i = 0; i < 70; i++) {
     const x = 3 + Math.floor(rnd() * (W - 6)), z = 3 + Math.floor(rnd() * (D - 6));
+    if (GEN === 2 && ZONES.some((zn) => zoneDist(zn, x, z) < 4)) continue;
     const y = surfaceY(x, z);
     if (world[idx(x, y - 1, z)] !== GRASS) continue;
     const th = 4 + Math.floor(rnd() * 2);
@@ -267,6 +327,74 @@ function generateWorld(seed) {
       }
     }
     for (let dy = 0; dy < th; dy++) world[idx(x, y + dy, z)] = LOG;
+  }
+  if (GEN === 2) buildLandmarks(seed);
+}
+function buildLandmarks(seed) {
+  const rnd = mulberry32(seed + 21);
+
+  // --- Pantai: pokok kelapa dan payung
+  let palms = 0, umbrellas = 0;
+  for (let i = 0; i < 80; i++) {
+    const x = 18 + Math.floor(rnd() * 20), z = 5 + Math.floor(rnd() * (D - 10)), kind = rnd(), tall = rnd();
+    const y = surfaceY(x, z);
+    if (world[idx(x, y - 1, z)] !== SAND) continue;
+    if (kind < 0.7 && palms < 12) {
+      palms++;
+      const top = y + 4 + Math.floor(tall * 2);
+      fillBox(x, y, z, x, top, z, LOG);
+      world[idx(x, top + 1, z)] = PALM;
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        world[idx(x + dx, top + 1, z + dz)] = PALM;
+        world[idx(x + dx * 2, top + 1, z + dz * 2)] = PALM;
+        world[idx(x + dx * 3, top, z + dz * 3)] = PALM;
+      }
+    } else if (kind >= 0.7 && umbrellas < 5) {
+      umbrellas++;
+      fillBox(x, y, z, x, y + 1, z, LINE);
+      fillBox(x - 1, y + 2, z - 1, x + 1, y + 2, z + 1, RAINBOW);
+    }
+  }
+
+  // --- Padang bola: rumput, garisan, dua gol, lampu
+  const f = FIELD_ZONE, fy = f.y;
+  fillBox(f.x0, fy + 1, f.z0, f.x1, fy + 8, f.z1, AIR);
+  fillBox(f.x0, fy, f.z0, f.x1, fy, f.z1, FIELD);
+  fillBox(62, fy, 41, 82, fy, 41, LINE);
+  fillBox(62, fy, 55, 82, fy, 55, LINE);
+  for (const x of [62, 72, 82]) fillBox(x, fy, 41, x, fy, 55, LINE);
+  for (let dz = -3; dz <= 3; dz++)
+    for (let dx = -3; dx <= 3; dx++)
+      if (Math.round(Math.hypot(dx, dz)) === 3) world[idx(72 + dx, fy, 48 + dz)] = LINE;
+  for (const [gx, nx] of [[61, 60], [83, 84]]) {
+    fillBox(gx, fy + 1, 45, gx, fy + 3, 45, LINE);
+    fillBox(gx, fy + 1, 51, gx, fy + 3, 51, LINE);
+    fillBox(gx, fy + 4, 45, gx, fy + 4, 51, LINE);
+    fillBox(nx, fy + 1, 45, nx, fy + 4, 51, NET);
+  }
+  for (const [x, z] of [[60, 40], [84, 40], [60, 56], [84, 56]]) {
+    fillBox(x, fy + 1, z, x, fy + 3, z, LINE);
+    world[idx(x, fy + 4, z)] = GLOW;
+  }
+
+  // --- Taman permainan: trampolin, bukit pelangi, palang panjat, kotak pasir, lampu
+  const p = PLAY_ZONE, py = p.y;
+  fillBox(p.x0, py + 1, p.z0, p.x1, py + 8, p.z1, AIR);
+  fillBox(42, py, 68, 44, py, 70, TRAMP);
+  fillBox(52, py, 68, 54, py, 70, TRAMP);
+  for (let i = 0; i < 5; i++) {
+    fillBox(42 + i, py + 1, 75, 42 + i, py + 1 + i, 76, RAINBOW);
+    fillBox(54 - i, py + 1, 75, 54 - i, py + 1 + i, 76, i % 2 ? YELLOW : BLUE);
+  }
+  fillBox(47, py + 1, 75, 49, py + 5, 76, RAINBOW);
+  fillBox(47, py + 1, 71, 47, py + 3, 71, YELLOW);
+  fillBox(51, py + 1, 71, 51, py + 3, 71, YELLOW);
+  fillBox(47, py + 4, 71, 51, py + 4, 71, BLUE);
+  fillBox(42, py, 79, 46, py, 82, BLUE);
+  fillBox(43, py, 80, 45, py, 81, SAND);
+  for (const [x, z] of [[40, 66], [56, 66], [40, 82], [56, 82]]) {
+    fillBox(x, py + 1, z, x, py + 2, z, YELLOW);
+    world[idx(x, py + 3, z)] = GLOW;
   }
 }
 // Y pertama yang kosong di atas tanah
@@ -429,7 +557,7 @@ function buildChunk(cx, cz) {
             const c = f.corners[i], uv = f.uvs[i];
             out.pos.push(x + c[0], y + c[1], z + c[2]);
             const u = UV_INSET + uv[0] * (1 - 2 * UV_INSET), v = UV_INSET + uv[1] * (1 - 2 * UV_INSET);
-            out.uv.push((tx + u) / 4, 1 - (ty + 1 - v) / 4);
+            out.uv.push((tx + u) / 4, 1 - (ty + 1 - v) / ATLAS_ROWS);
             out.col.push(shade, shade, shade);
             out.glow.push(glow);
           }
@@ -536,7 +664,13 @@ function boxCollides(x, y, z, hw, h) {
 
 // Gerakkan entiti satu paksi pada satu masa. Pulangkan true kalau terhalang secara mendatar.
 function moveEntity(e, dt) {
-  e.vy = Math.max(-40, e.vy - GRAVITY * dt);
+  e.inWater = getBlock(Math.floor(e.x), Math.floor(e.y + 0.3), Math.floor(e.z)) === WATER;
+  if (e.inWater) {
+    // Dalam air: haiwan, item dan bola terapung; pemain tenggelam perlahan
+    e.vy = e.floats ? Math.min(1.5, e.vy + 12 * dt) : Math.max(-2.5, e.vy - GRAVITY * 0.25 * dt);
+  } else {
+    e.vy = Math.max(-40, e.vy - GRAVITY * dt);
+  }
   const steps = Math.max(1, Math.ceil(Math.max(Math.abs(e.vx), Math.abs(e.vy), Math.abs(e.vz)) * dt / 0.4));
   const sdt = dt / steps;
   let blocked = false;
@@ -550,7 +684,16 @@ function moveEntity(e, dt) {
     if (!boxCollides(e.x, ny, e.z, e.hw, e.h)) {
       e.y = ny;
     } else {
-      if (e.vy < 0) { e.y = Math.floor(ny) + 1; e.onGround = true; }
+      if (e.vy < 0) {
+        e.y = Math.floor(ny) + 1;
+        const under = BLOCKS[getBlock(Math.floor(e.x), Math.floor(e.y) - 1, Math.floor(e.z))];
+        if (under && under.bounce && e.vy < -2) {
+          e.vy = Math.min(12, Math.max(8, -e.vy * 0.95));
+          e.bounced = true;
+          continue;
+        }
+        e.onGround = true;
+      }
       e.vy = 0;
     }
   }
@@ -587,15 +730,18 @@ function updatePlayer(dt) {
   const len = Math.hypot(f, s);
   if (len > 1) { f /= len; s /= len; }
   const sin = Math.sin(yaw), cos = Math.cos(yaw);
-  player.vx = (-sin * f + cos * s) * WALK_SPEED;
-  player.vz = (-cos * f - sin * s) * WALK_SPEED;
+  const speed = WALK_SPEED * (riding ? 1.7 : 1) * (player.inWater ? 0.65 : 1);
+  player.vx = (-sin * f + cos * s) * speed;
+  player.vz = (-cos * f - sin * s) * speed;
   if ((jumpHeld || keys.Space) && player.onGround) { player.vy = JUMP_SPEED; exhaust += 0.03; }
+  if ((jumpHeld || keys.Space) && player.inWater) player.vy = 3.2; // berenang naik
 
   const px0 = player.x, pz0 = player.z;
   const blocked = moveEntity(player, dt);
   updateStats(dt, Math.hypot(player.x - px0, player.z - pz0));
 
   // Lompat automatik bila terlanggar block setinggi satu
+  if (blocked && player.inWater && len > 0.1) player.vy = 6.5; // panjat keluar dari air
   if (blocked && player.onGround && len > 0.1) {
     const sp = Math.hypot(player.vx, player.vz);
     const ax = player.x + (player.vx / sp) * 0.5, az = player.z + (player.vz / sp) * 0.5;
@@ -617,7 +763,7 @@ function raycast(o, d, maxDist) {
   let face = [0, 0, 0], t = 0;
   while (t <= maxDist) {
     const id = getBlock(x, y, z);
-    if (id !== AIR) return { x, y, z, id, face, t };
+    if (id !== AIR && id !== WATER) return { x, y, z, id, face, t };
     if (tx < ty && tx < tz) { x += sx; t = tx; tx += dx; face = [-sx, 0, 0]; }
     else if (ty < tz) { y += sy; t = ty; ty += dy; face = [0, -sy, 0]; }
     else { z += sz; t = tz; tz += dz; face = [0, 0, -sz]; }
@@ -713,14 +859,20 @@ function makePinkyModel() {
 }
 
 const mobs = [];
-function spawnPinky(x, z) {
+function spawnPinky(x, z, y, tame) {
   const model = makePinkyModel();
   const m = {
     ...model,
-    x: x + 0.5, y: surfaceY(x, z), z: z + 0.5, vx: 0, vy: 0, vz: 0, hw: 0.3, h: 0.9, onGround: false,
+    x: x + 0.5, y: y === undefined ? surfaceY(x, z) : y, z: z + 0.5, vx: 0, vy: 0, vz: 0, hw: 0.3, h: 0.9, onGround: false,
+    isPinky: true, tame: !!tame, floats: true,
     yaw: Math.random() * Math.PI * 2, timer: Math.random() * 2, walking: false, stuck: 0, phase: Math.random() * 10,
   };
   m.group.userData.mob = m;
+  // Reben merah di kepala menandakan Pinky yang sudah jinak
+  m.bow = makeBox(4, 2, 1, 0xff2f6d);
+  m.bow.position.set(0, 3.8, 2.5);
+  m.bow.visible = m.tame;
+  m.head.add(m.bow);
   m.group.rotation.y = m.yaw;
   scene.add(m.group);
   mobs.push(m);
@@ -731,14 +883,37 @@ function spawnPinky(x, z) {
     const x = Math.floor(W / 2 + (rnd() - 0.5) * 44), z = Math.floor(D / 2 + (rnd() - 0.5) * 44);
     spawnPinky(x, z);
   }
+  // Pinky jinak dari simpanan
+  if (Array.isArray(save.pets)) {
+    for (const p of save.pets.slice(0, 12)) {
+      if (Array.isArray(p) && p.length === 3 && p.every(Number.isFinite) && inBounds(Math.floor(p[0]), Math.floor(p[1]), Math.floor(p[2]))) {
+        spawnPinky(Math.floor(p[0]), Math.floor(p[2]), p[1], true);
+      }
+    }
+  }
 }
 
 function updateMob(m, dt, time) {
+  if (m === riding) {
+    // Ditunggang: Pinky ikut kedudukan dan arah pemain
+    const moved = Math.hypot(player.x - m.x, player.z - m.z);
+    m.x = player.x; m.y = player.y; m.z = player.z;
+    m.yaw = yaw + Math.PI;
+    m.group.position.set(m.x, m.y, m.z);
+    m.group.rotation.y = m.yaw;
+    m.phase += moved * 9;
+    const swing = moved > 1e-4 ? Math.sin(m.phase) * 0.7 : 0;
+    m.legs[0].rotation.x = swing; m.legs[3].rotation.x = swing;
+    m.legs[1].rotation.x = -swing; m.legs[2].rotation.x = -swing;
+    return;
+  }
+  // Pinky jinak yang tertinggal jauh muncul semula di sebelah pemain
+  if (m.tame && Math.hypot(player.x - m.x, player.z - m.z) > 26) { m.x = player.x + 1; m.y = player.y + 0.5; m.z = player.z; }
   const dx = player.x - m.x, dz = player.z - m.z, dist = Math.hypot(dx, dz);
   let speed = 0;
-  if (heldId() === HEART && dist < 12) {
+  if (m.tame || (heldId() === HEART && dist < 12)) {
     m.yaw = Math.atan2(dx, dz);
-    speed = dist > 2.2 ? 2.2 : 0;
+    speed = m.tame ? (dist > 8 ? 4.5 : dist > 3 ? 3 : 0) : (dist > 2.2 ? 2.2 : 0);
   } else {
     m.timer -= dt;
     if (m.timer <= 0) {
@@ -856,7 +1031,7 @@ function spawnJelly(x, y, z) {
   group.add(inner);
   const j = {
     group, inner, x: x + 0.5, y, z: z + 0.5, vx: 0, vy: 0, vz: 0, hw: 0.33, h: 0.57, onGround: false,
-    yaw: 0, hp: 3, hopTimer: Math.random(), cool: 0,
+    yaw: 0, hp: 3, hopTimer: Math.random(), cool: 0, floats: true,
   };
   group.userData.jelly = j;
   group.position.set(j.x, j.y, j.z);
@@ -891,7 +1066,7 @@ function updateJellies(dt) {
       const x = Math.floor(player.x + Math.cos(a) * r), z = Math.floor(player.z + Math.sin(a) * r);
       if (x >= 1 && x < W - 1 && z >= 1 && z < D - 1) {
         const y = surfaceY(x, z);
-        if (y < H - 2 && lightAt(x, y, z) === 0) spawnJelly(x, y, z);
+        if (y < H - 2 && lightAt(x, y, z) === 0 && getBlock(x, y - 1, z) !== WATER) spawnJelly(x, y, z);
       }
     }
   }
@@ -939,14 +1114,14 @@ function aim(sx, sy) {
   else ndc.set((sx / window.innerWidth) * 2 - 1, -(sy / window.innerHeight) * 2 + 1);
   raycaster.setFromCamera(ndc, camera);
   const hit = raycast(raycaster.ray.origin, raycaster.ray.direction, REACH);
-  const mobHits = raycaster.intersectObjects(mobs.concat(jellies).map((m) => m.group), true);
-  let mob = null, jelly = null;
+  const mobHits = raycaster.intersectObjects(mobs.concat(jellies, critters, ball ? [ball] : []).map((m) => m.group), true);
+  let mob = null, jelly = null, kicked = null;
   if (mobHits.length && (!hit || mobHits[0].distance < hit.t)) {
     let o = mobHits[0].object;
-    while (o && !o.userData.mob && !o.userData.jelly) o = o.parent;
-    if (o) { mob = o.userData.mob || null; jelly = o.userData.jelly || null; }
+    while (o && !o.userData.mob && !o.userData.jelly && !o.userData.ball) o = o.parent;
+    if (o) { mob = o.userData.mob || null; jelly = o.userData.jelly || null; kicked = o.userData.ball || null; }
   }
-  return { hit, mob, jelly };
+  return { hit, mob, jelly, ball: kicked };
 }
 
 function pet(m) {
@@ -969,13 +1144,12 @@ function breakBlock(hit) {
 }
 
 function doPlace(sx, sy) {
-  const { hit, mob, jelly } = aim(sx, sy);
-  if (mob) { pet(mob); return; }
-  if (jelly) { hitJelly(jelly); return; }
+  const res = aim(sx, sy), hit = res.hit;
+  if (interact(res)) return;
   if (ITEMS[heldId()] && ITEMS[heldId()].food) { eat(); return; }
   if (!hit) { showToast('Terlalu jauh - dekati block'); return; }
   const x = hit.x + hit.face[0], y = hit.y + hit.face[1], z = hit.z + hit.face[2];
-  if (!inBounds(x, y, z) || world[idx(x, y, z)] !== AIR) return;
+  if (!inBounds(x, y, z) || (world[idx(x, y, z)] !== AIR && world[idx(x, y, z)] !== WATER)) return;
   // Jangan letak block di dalam badan pemain
   if (x + 1 > player.x - player.hw && x < player.x + player.hw &&
       z + 1 > player.z - player.hw && z < player.z + player.hw &&
@@ -986,6 +1160,274 @@ function doPlace(sx, sy) {
   setBlock(x, y, z, id);
   consumeHeld();
   beep(420, 0.06, 'triangle', 0.07);
+}
+
+// ---------- Interaksi dengan haiwan, Jeli dan bola ----------
+let riding = null; // Pinky yang sedang ditunggang
+const dismountBtn = document.getElementById('dismount');
+function tamePinky(m) {
+  consumeHeld();
+  m.tame = true;
+  m.bow.visible = true;
+  saveDirty = true;
+  spawnHearts(m.x, m.y + 1, m.z);
+  spawnHearts(m.x, m.y + 1.4, m.z);
+  beep(660, 0.1, 'sine', 0.08);
+  setTimeout(() => beep(990, 0.1, 'sine', 0.08), 100);
+  setTimeout(() => beep(1320, 0.18, 'sine', 0.08), 200);
+  showToast('Pinky kini kawan awak! Tekan padanya untuk tunggang');
+}
+function startRide(m) {
+  riding = m;
+  dismountBtn.classList.remove('hidden');
+  spawnHearts(m.x, m.y + 1, m.z);
+  showToast('Menunggang Pinky! Tekan Turun untuk turun');
+}
+function stopRide() {
+  riding = null;
+  dismountBtn.classList.add('hidden');
+}
+dismountBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); stopRide(); });
+// Pulangkan true kalau sasaran ialah haiwan, Jeli atau bola (jadi bukan block)
+function interact(res) {
+  const m = res.mob;
+  if (m) {
+    if (m.isPinky && !m.tame && heldId() === APPLE) tamePinky(m);
+    else if (m.isPinky && m.tame && riding !== m) startRide(m);
+    else pet(m);
+    return true;
+  }
+  if (res.jelly) { hitJelly(res.jelly); return true; }
+  if (res.ball) { kickBall(11, 5.5); return true; }
+  return false;
+}
+
+// ---------- Haiwan kecil: arnab, anak ayam, ketam, rama-rama, ikan ----------
+const CRITTER = {
+  bunny: { hw: 0.25, h: 0.6, leash: 12, hop: true },
+  chick: { hw: 0.2, h: 0.5, leash: 12, speed: 1 },
+  crab: { hw: 0.25, h: 0.35, leash: 6, speed: 1.4, sideways: true },
+  butterfly: { fly: true },
+  fish: { swim: true },
+};
+const WING_COLORS = [0xff7fbf, 0xffe14f, 0x6fb7ff, 0xc58cff];
+const DARK = 0x3a2460;
+function part(parent, w, h, d, hex, x, y, z) {
+  const m = makeBox(w, h, d, hex);
+  m.position.set(x, y, z);
+  parent.add(m);
+  return m;
+}
+// Model menghadap +Z, unit 1/16 block
+function makeCritterModel(kind) {
+  const group = new THREE.Group(), inner = new THREE.Group(), parts = {};
+  inner.scale.setScalar(1 / 16);
+  group.add(inner);
+  if (kind === 'bunny') {
+    part(inner, 5, 4, 6, 0xffffff, 0, 3, 0);
+    part(inner, 4, 4, 4, 0xffffff, 0, 6.5, 3);
+    part(inner, 1, 4, 1, 0xffc4e1, -1, 10.5, 3);
+    part(inner, 1, 4, 1, 0xffc4e1, 1, 10.5, 3);
+    part(inner, 2, 2, 2, 0xffe3f1, 0, 4, -3.5);
+    part(inner, 0.8, 0.8, 0.5, DARK, -1, 7, 5.1);
+    part(inner, 0.8, 0.8, 0.5, DARK, 1, 7, 5.1);
+    part(inner, 1, 0.8, 0.5, 0xff7fbf, 0, 6, 5.1);
+  } else if (kind === 'chick') {
+    part(inner, 4, 4, 5, 0xffe14f, 0, 3.5, 0);
+    part(inner, 3, 3, 3, 0xffe14f, 0, 6.5, 1.5);
+    part(inner, 1, 1, 1.5, 0xff9a3c, 0, 6.2, 3.5);
+    part(inner, 0.6, 0.6, 0.4, DARK, -0.9, 7.2, 3.05);
+    part(inner, 0.6, 0.6, 0.4, DARK, 0.9, 7.2, 3.05);
+    part(inner, 0.6, 1.5, 0.6, 0xff9a3c, -1, 0.75, 0);
+    part(inner, 0.6, 1.5, 0.6, 0xff9a3c, 1, 0.75, 0);
+  } else if (kind === 'crab') {
+    part(inner, 7, 3, 5, 0xff7a59, 0, 2.5, 0);
+    for (const side of [-1, 1]) {
+      part(inner, 2.5, 2.5, 2.5, 0xff5a3c, side * 5, 3, 2);
+      part(inner, 0.8, 2, 0.8, 0xffffff, side * 1.5, 5, 2);
+      part(inner, 0.8, 0.8, 0.4, DARK, side * 1.5, 5.6, 2.45);
+      for (let i = 0; i < 3; i++) part(inner, 1, 1, 1, 0xff5a3c, side * 4, 0.5, -1.5 + i * 1.5);
+    }
+  } else if (kind === 'butterfly') {
+    inner.scale.setScalar(1 / 20);
+    part(inner, 0.8, 0.8, 4, 0x5a2a44, 0, 0, 0);
+    const color = WING_COLORS[Math.floor(Math.random() * WING_COLORS.length)];
+    parts.wings = [-1, 1].map((side) => {
+      const pivot = new THREE.Group();
+      part(pivot, 4, 0.3, 4, color, side * 2.2, 0, 0);
+      inner.add(pivot);
+      return pivot;
+    });
+  } else {
+    part(inner, 2, 3.5, 5, Math.random() < 0.5 ? 0xff9a3c : 0x6fb7ff, 0, 0, 0);
+    parts.tail = part(inner, 0.6, 3, 2.5, 0xffffff, 0, 0, -3.5);
+    part(inner, 0.5, 0.8, 0.8, DARK, -1.05, 0.6, 1.5);
+    part(inner, 0.5, 0.8, 0.8, DARK, 1.05, 0.6, 1.5);
+  }
+  return { group, inner, parts };
+}
+
+const critters = [];
+function spawnCritter(kind, x, y, z) {
+  const def = CRITTER[kind];
+  const c = {
+    ...makeCritterModel(kind), kind, def, x, y, z, hx: x, hy: y, hz: z, tx: x, ty: y, tz: z,
+    vx: 0, vy: 0, vz: 0, hw: def.hw || 0.2, h: def.h || 0.3, onGround: false, floats: true,
+    yaw: Math.random() * Math.PI * 2, timer: Math.random() * 2, walking: false, phase: Math.random() * 10,
+  };
+  c.group.userData.mob = c; // boleh diusap macam Pinky
+  c.group.position.set(x, y, z);
+  scene.add(c.group);
+  critters.push(c);
+}
+{
+  const rnd = mulberry32(save.seed + 33);
+  const spawnMany = (count, kind, fits, lift) => {
+    for (let i = 0, made = 0; i < 400 && made < count; i++) {
+      const x = 2 + Math.floor(rnd() * (W - 4)), z = 2 + Math.floor(rnd() * (D - 4)), y = surfaceY(x, z);
+      if (y < 3 || !fits(world[idx(x, y - 1, z)], x, y, z)) continue;
+      spawnCritter(kind, x + 0.5, y + lift, z + 0.5);
+      made++;
+    }
+  };
+  spawnMany(8, 'bunny', (below) => below === GRASS, 0);
+  spawnMany(8, 'chick', (below) => below === GRASS || below === FIELD, 0);
+  spawnMany(12, 'butterfly', (below) => below === GRASS || below === LEAVES, 1.5);
+  spawnMany(6, 'crab', (below) => below === SAND, 0);
+  spawnMany(10, 'fish', (below, x, y, z) => below === WATER && world[idx(x, y - 2, z)] === WATER, -1.5);
+}
+
+function updateCritter(c, dt, time) {
+  const far = (c.x - player.x) ** 2 + (c.z - player.z) ** 2;
+  c.group.visible = far < 70 * 70;
+  if (far > 45 * 45) return; // yang jauh tak perlu bergerak
+  const def = c.def;
+  c.timer -= dt;
+
+  if (def.fly || def.swim) {
+    if (c.timer <= 0) {
+      c.timer = 1.5 + Math.random() * 2.5;
+      if (def.fly) {
+        const tx = Math.max(1, Math.min(W - 2, c.hx + (Math.random() - 0.5) * 10));
+        const tz = Math.max(1, Math.min(D - 2, c.hz + (Math.random() - 0.5) * 10));
+        c.tx = tx; c.tz = tz;
+        c.ty = surfaceY(Math.floor(tx), Math.floor(tz)) + 1.2 + Math.random() * 1.8;
+      } else {
+        // Ikan hanya memilih sasaran yang masih di dalam air
+        const tx = c.x + (Math.random() - 0.5) * 6, ty = c.y + (Math.random() - 0.5) * 2, tz = c.z + (Math.random() - 0.5) * 6;
+        if (getBlock(Math.floor(tx), Math.floor(ty), Math.floor(tz)) === WATER &&
+            getBlock(Math.floor(tx), Math.floor(ty + 0.6), Math.floor(tz)) === WATER) { c.tx = tx; c.ty = ty; c.tz = tz; }
+      }
+    }
+    const dx = c.tx - c.x, dy = c.ty - c.y, dz = c.tz - c.z, d = Math.hypot(dx, dy, dz);
+    if (d > 0.1) {
+      const step = Math.min(d, (def.fly ? 1.6 : 1.2) * dt) / d;
+      c.x += dx * step; c.y += dy * step; c.z += dz * step;
+      c.yaw = Math.atan2(dx, dz);
+    }
+    if (def.fly) {
+      const flap = 0.3 + Math.sin(time * 18 + c.phase) * 0.9;
+      c.parts.wings[0].rotation.z = flap;
+      c.parts.wings[1].rotation.z = -flap;
+    } else {
+      c.parts.tail.rotation.y = Math.sin(time * 8 + c.phase) * 0.6;
+    }
+    c.group.position.set(c.x, c.y + (def.fly ? Math.sin(time * 5 + c.phase) * 0.08 : 0), c.z);
+  } else {
+    const homeDist = Math.hypot(c.hx - c.x, c.hz - c.z);
+    if (def.hop) {
+      // Arnab: melompat-lompat
+      if (c.onGround && c.timer <= 0) {
+        c.timer = 0.6 + Math.random() * 1.6;
+        c.yaw = homeDist > def.leash ? Math.atan2(c.hx - c.x, c.hz - c.z) : Math.random() * Math.PI * 2;
+        c.vx = Math.sin(c.yaw) * 2.4; c.vz = Math.cos(c.yaw) * 2.4; c.vy = 5.5;
+      }
+      moveEntity(c, dt);
+      if (c.onGround) c.vx = c.vz = 0;
+    } else {
+      // Anak ayam dan ketam: berjalan-jalan
+      if (c.timer <= 0) {
+        c.timer = 1 + Math.random() * 3;
+        c.walking = Math.random() < 0.65;
+        if (c.walking) c.yaw = homeDist > def.leash ? Math.atan2(c.hx - c.x, c.hz - c.z) : Math.random() * Math.PI * 2;
+      }
+      const speed = c.walking ? def.speed : 0;
+      c.vx = Math.sin(c.yaw) * speed; c.vz = Math.cos(c.yaw) * speed;
+      const px = c.x, pz = c.z;
+      if (moveEntity(c, dt) && c.onGround && speed > 0) c.vy = 7;
+      c.phase += Math.hypot(c.x - px, c.z - pz) * 14;
+    }
+    if (c.y < -20) { c.x = c.hx; c.y = c.hy; c.z = c.hz; c.vy = 0; }
+    c.group.position.set(c.x, c.y + (def.hop ? 0 : Math.abs(Math.sin(c.phase)) * 0.04), c.z);
+  }
+  // Ketam berjalan mengiring
+  const facing = c.yaw + (def.sideways ? Math.PI / 2 : 0);
+  let diff = facing - c.group.rotation.y;
+  diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+  c.group.rotation.y += diff * Math.min(1, dt * 8);
+}
+
+// ---------- Bola sepak ----------
+const FIELD_CENTER = [72.5, FIELD_ZONE.y + 1, 48.5];
+let ball = null, goals = 0;
+if (GEN === 2) {
+  const group = new THREE.Group(), inner = new THREE.Group();
+  inner.scale.setScalar(1 / 14);
+  inner.position.y = 0.25;
+  part(inner, 7, 7, 7, 0xffffff, 0, 0, 0);
+  for (const [x, y, z] of [[0, 0, 3.3], [0, 0, -3.3], [3.3, 0, 0], [-3.3, 0, 0], [0, 3.3, 0], [0, -3.3, 0]]) part(inner, 3, 3, 3, 0xff4fa3, x * 0.62, y * 0.62, z * 0.62);
+  group.add(inner);
+  ball = { group, inner, x: FIELD_CENTER[0], y: FIELD_CENTER[1], z: FIELD_CENTER[2], vx: 0, vy: 0, vz: 0, hw: 0.25, h: 0.5, onGround: false, floats: true, cool: 0 };
+  group.userData.ball = ball;
+  scene.add(group);
+}
+function resetBall() {
+  ball.x = FIELD_CENTER[0]; ball.y = FIELD_CENTER[1]; ball.z = FIELD_CENTER[2];
+  ball.vx = ball.vy = ball.vz = 0;
+}
+// Sepak ke arah pandangan pemain
+function kickBall(power, lift) {
+  ball.vx = -Math.sin(yaw) * power;
+  ball.vz = -Math.cos(yaw) * power;
+  ball.vy = lift;
+  ball.cool = 0.3;
+  beep(240, 0.08, 'triangle', 0.08);
+}
+function updateBall(dt) {
+  const b = ball;
+  b.cool -= dt;
+  // Menggelecek: berjalan ke arah bola menolaknya ke depan
+  const dx = b.x - player.x, dz = b.z - player.z, d = Math.hypot(dx, dz) || 1;
+  const walking = Math.hypot(player.vx, player.vz);
+  if (d < 0.8 && Math.abs(b.y - player.y) < 1.2 && walking > 0.5 && b.cool <= 0) {
+    b.vx = player.vx * 1.5 + (dx / d) * 2;
+    b.vz = player.vz * 1.5 + (dz / d) * 2;
+    b.vy = 2.5;
+    b.cool = 0.25;
+  }
+  const px = b.x, pz = b.z, pvx = b.vx, pvy = b.vy, pvz = b.vz;
+  moveEntity(b, dt);
+  // Melantun dari dinding dan tanah, perlahan di atas rumput
+  if (Math.abs(pvx) > 0.5 && Math.abs(b.x - px) < Math.abs(pvx) * dt * 0.2) b.vx = -pvx * 0.5;
+  if (Math.abs(pvz) > 0.5 && Math.abs(b.z - pz) < Math.abs(pvz) * dt * 0.2) b.vz = -pvz * 0.5;
+  if (b.onGround) {
+    if (pvy < -4) b.vy = -pvy * 0.45;
+    const friction = Math.max(0, 1 - 2.2 * dt);
+    b.vx *= friction; b.vz *= friction;
+  }
+  if (b.y < -20) resetBall();
+
+  // Gol: bola melepasi garisan di antara dua tiang
+  if (b.z > 46.25 && b.z < 50.75 && b.y < FIELD_ZONE.y + 3.5 && (b.x < 62 || b.x > 83)) {
+    goals++;
+    for (let i = 0; i < 4; i++) spawnHearts(b.x, b.y + 0.5 + i * 0.4, b.z);
+    showToast('GOOOL! Jumlah gol: ' + goals);
+    [523, 659, 784, 1047].forEach((freq, i) => setTimeout(() => beep(freq, 0.16, 'square', 0.06), i * 110));
+    resetBall();
+  }
+  b.group.position.set(b.x, b.y, b.z);
+  b.inner.rotation.x += b.vz * dt * 2.5;
+  b.inner.rotation.z -= b.vx * dt * 2.5;
 }
 
 // ---------- Kotak sasaran ----------
@@ -1085,7 +1527,7 @@ function dropGeo(id) {
     const face = Math.floor(i / 4);
     const tile = face === 2 ? def.tiles[0] : face === 3 ? def.tiles[1] : def.tiles[2];
     const u = UV_INSET + uv.getX(i) * (1 - 2 * UV_INSET), v = UV_INSET + uv.getY(i) * (1 - 2 * UV_INSET);
-    uv.setXY(i, ((tile % 4) + u) / 4, 1 - ((tile >> 2) + 1 - v) / 4);
+    uv.setXY(i, ((tile % 4) + u) / 4, 1 - ((tile >> 2) + 1 - v) / ATLAS_ROWS);
     const sh = def.glow ? 1 : shades[face];
     cols.push(sh, sh, sh);
   }
@@ -1122,7 +1564,7 @@ function spawnDrop(x, y, z, id) {
   drops.push({
     mesh, id, x: x + 0.5, y: y + 0.4, z: z + 0.5,
     vx: (Math.random() - 0.5) * 2, vy: 3, vz: (Math.random() - 0.5) * 2,
-    hw: 0.125, h: 0.25, onGround: false, age: 0, spin: Math.random() * 6,
+    hw: 0.125, h: 0.25, onGround: false, floats: true, age: 0, spin: Math.random() * 6,
   });
 }
 function updateDrops(dt, time) {
@@ -1190,7 +1632,7 @@ function updateMining(dt) {
   let res = null;
   if (holdPoint) res = aim(holdPoint.x, holdPoint.y);
   else if (playing && (locked() || consoleMode)) res = aim();
-  const hit = res && !res.mob && !res.jelly ? res.hit : null;
+  const hit = res && !res.mob && !res.jelly && !res.ball ? res.hit : null;
   const held = holdPoint || (mouseMining && locked()) || padMining;
   const active = playing && (held || pendingStrike);
   const key = hit && hit.id !== BEDROCK ? idx(hit.x, hit.y, hit.z) : -1;
@@ -1559,6 +2001,8 @@ function eat() {
 
 function updateStats(dt, moved) {
   // Jatuh lebih 3 block mencederakan
+  if (player.bounced) { player.bounced = false; fallPeak = player.y; beep(300, 0.12, 'sine', 0.06); }
+  if (player.inWater) fallPeak = player.y;
   if (player.onGround) {
     const fall = fallPeak - player.y;
     if (fall > 3.5) damage(Math.floor(fall - 3));
@@ -1619,6 +2063,7 @@ document.getElementById('ctrlBtn').addEventListener('click', () => {
   applyControls();
 });
 applyControls();
+if (GEN < 2) document.getElementById('oldWorld').hidden = false;
 
 const locked = () => document.pointerLockElement === canvas;
 
@@ -1713,8 +2158,7 @@ canvas.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   if (locked()) {
     if (e.button === 0) {
-      const { mob, jelly } = aim();
-      if (mob) pet(mob); else if (jelly) hitJelly(jelly); else { mouseMining = true; pendingStrike = true; }
+      if (!interact(aim())) { mouseMining = true; pendingStrike = true; }
     } else if (e.button === 2) doPlace();
     return;
   }
@@ -1724,9 +2168,8 @@ canvas.addEventListener('pointerdown', (e) => {
   if (!consoleMode) p.holdTimer = setTimeout(() => {
     if (p.dist >= HOLD_PX) return;
     p.holding = true;
-    const { hit, mob, jelly } = aim(p.x, p.y);
-    if (mob) { pet(mob); return; }
-    if (jelly) { hitJelly(jelly); return; }
+    const res = aim(p.x, p.y), hit = res.hit;
+    if (interact(res)) return;
     if (!hit) { showToast('Terlalu jauh - dekati block'); return; }
     holdPoint = p;
     pendingStrike = true;
@@ -1803,8 +2246,7 @@ function padButton(id, onDown, onUp) {
 let placeRepeat = 0;
 padButton('jump', () => { jumpHeld = true; }, () => { jumpHeld = false; });
 padButton('padB', () => {
-  const { mob, jelly } = aim();
-  if (mob) pet(mob); else if (jelly) hitJelly(jelly); else { padMining = true; pendingStrike = true; }
+  if (!interact(aim())) { padMining = true; pendingStrike = true; }
 }, () => { padMining = false; });
 padButton('padX', () => {
   doPlace();
@@ -1821,13 +2263,19 @@ window.addEventListener('pagehide', () => { saveDirty = true; writeSave(); });
 
 // ---------- Gelung utama ----------
 let last = performance.now();
+let wasSubmerged = false;
+const underwaterEl = document.getElementById('underwater');
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   const time = now / 1000;
 
   if (playing && !bagOpen && !dead) updatePlayer(dt);
-  if (playing && !bagOpen && !dead) for (const m of mobs) updateMob(m, dt, time);
+  if (playing && !bagOpen && !dead) {
+    for (const m of mobs) updateMob(m, dt, time);
+    for (const c of critters) updateCritter(c, dt, time);
+    if (ball) updateBall(dt);
+  }
   updateJellies(dt);
   updateHearts(dt);
   updateParticles(dt);
@@ -1842,10 +2290,13 @@ function frame(now) {
     dirtyChunks.clear();
   }
 
-  camera.position.set(player.x, player.y + EYE, player.z);
+  camera.position.set(player.x, player.y + EYE + (riding ? 0.75 : 0), player.z);
   camera.rotation.set(pitch, yaw, 0);
   camera.updateMatrixWorld();
   updateSky(dt);
+  // Warna biru bila kamera berada di dalam air
+  const submerged = getBlock(Math.floor(camera.position.x), Math.floor(camera.position.y), Math.floor(camera.position.z)) === WATER;
+  if (submerged !== wasSubmerged) { wasSubmerged = submerged; underwaterEl.style.opacity = submerged ? 1 : 0; }
 
   const target = updateMining(dt);
   highlight.visible = !!target;
@@ -1860,7 +2311,8 @@ requestAnimationFrame(frame);
 window.__pink = { player, mobs, world, getBlock, setBlock, doPlace, mining, inv, drops, addItem, heldId, RECIPES, craft, ITEMS, renderHotbar, damage, renderStats,
   get health() { return health; }, set health(v) { health = v; },
   get hunger() { return hunger; }, set hunger(v) { hunger = v; },
-  get dead() { return dead; }, jellies, lightAt, get consoleMode() { return consoleMode; },
+  get dead() { return dead; }, jellies, lightAt, critters, GEN, kickBall, interact,
+  get ball() { return ball; }, get riding() { return riding; }, get goals() { return goals; }, get consoleMode() { return consoleMode; },
   get dayTime() { return dayTime; }, set dayTime(v) { dayTime = v; }, get daylight() { return daylight; },
   // Gambar dunia 3D sahaja (tanpa butang), untuk semakan rupa
   shot: () => { renderer.render(scene, camera); return canvas.toDataURL('image/jpeg', 0.7); }, get mode() { return mode; }, surfaceY, startPlaying, selectSlot, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, get pitch() { return pitch; }, set pitch(v) { pitch = v; } };
