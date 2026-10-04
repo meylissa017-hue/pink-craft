@@ -13,9 +13,12 @@ const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, LOG = 4, LEAVES = 5, BRICK = 6, P
   SAND = 13, WATER = 14, FIELD = 15, LINE = 16, NET = 17, TRAMP = 18, PALM = 19, RAINBOW = 20, YELLOW = 21, BLUE = 22,
   CRYSTAL_ORE = 23, GOLD_ORE = 24, GEM_ORE = 25, CRYSTAL_BLOCK = 26, GOLD_BLOCK = 27, CHEST = 28, SAND_X = 29,
   BED_HEAD = 30, BED_FOOT = 31, SHELF = 32, RUG = 33, PAINT_PINKY = 34, PAINT_RAINBOW = 35, FLOWERS = 36,
-  SOFA = 37, TABLE = 38, TV = 39, KITCHEN = 40, WARDROBE = 41, FENCE = 42;
+  SOFA = 37, TABLE = 38, TV = 39, KITCHEN = 40, WARDROBE = 41, FENCE = 42,
+  STRAW_SPROUT = 43, STRAW_RIPE = 44, CARROT_SPROUT = 45, CARROT_RIPE = 46, FLOWER_SPROUT = 47;
 // Item yang digugurkan oleh bijih (ditakrif di sini kerana BLOCKS merujuknya)
 const KRISTAL = 113, EMAS = 114, PERMATA = 115;
+// Benih dan hasil kebun (juga dirujuk oleh BLOCKS)
+const SEED_STRAW = 117, SEED_CARROT = 118, SEED_FLOWER = 119, STRAWBERRY = 120, CARROT = 121;
 
 // tiles: [atas, bawah, sisi] — nombor petak dalam atlas 4x4; hard: saat untuk pecahkan dengan tangan; tool: alat yang mempercepat
 const BLOCKS = {
@@ -33,7 +36,7 @@ const BLOCKS = {
   [BEDROCK]: { name: 'Bedrock', hard: Infinity, tiles: [13, 13, 13] },
   [SAND]: { name: 'Pasir', hard: 0.5, tool: 'shovel', tiles: [14, 14, 14] },
   // liquid: boleh dilalui dan direnangi, tak boleh dipecahkan
-  [WATER]: { name: 'Air', hard: Infinity, tiles: [15, 15, 15], transparent: true, liquid: true },
+  [WATER]: { name: 'Air', hard: Infinity, tiles: [15, 15, 15], transparent: true, liquid: true, passable: true },
   [FIELD]: { name: 'Rumput Padang', hard: 0.6, tool: 'shovel', tiles: [16, 16, 16] },
   [LINE]: { name: 'Block Putih', hard: 0.6, tiles: [17, 17, 17] },
   [NET]: { name: 'Jaring Gol', hard: 0.3, tiles: [18, 18, 18], transparent: true },
@@ -66,10 +69,22 @@ const BLOCKS = {
   [KITCHEN]: { name: 'Kabinet Dapur', hard: 0.5, tiles: [47, 8, 48] },
   [WARDROBE]: { name: 'Almari', hard: 0.5, tool: 'axe', tiles: [8, 8, 49] },
   [FENCE]: { name: 'Pagar', hard: 0.5, tool: 'axe', tiles: [50, 50, 50], transparent: true },
+  // Tanaman: boleh dilalui; grows = jadi block ini bila matang; drops = [item, minimum, maksimum]
+  [STRAW_SPROUT]: { name: 'Anak Strawberi', hard: 0.25, tiles: [51, 51, 51], transparent: true, passable: true, grows: STRAW_RIPE, drops: [[SEED_STRAW, 1, 1]] },
+  [STRAW_RIPE]: { name: 'Pokok Strawberi', hard: 0.25, tiles: [52, 52, 52], transparent: true, passable: true, harvest: true, drops: [[STRAWBERRY, 2, 3], [SEED_STRAW, 1, 2]] },
+  [CARROT_SPROUT]: { name: 'Anak Lobak', hard: 0.25, tiles: [53, 53, 53], transparent: true, passable: true, grows: CARROT_RIPE, drops: [[SEED_CARROT, 1, 1]] },
+  [CARROT_RIPE]: { name: 'Pokok Lobak', hard: 0.25, tiles: [54, 54, 54], transparent: true, passable: true, harvest: true, drops: [[CARROT, 2, 3], [SEED_CARROT, 1, 2]] },
+  [FLOWER_SPROUT]: { name: 'Anak Bunga', hard: 0.25, tiles: [55, 55, 55], transparent: true, passable: true, grows: FLOWERS, drops: [[SEED_FLOWER, 1, 1]] },
 };
 const HOTBAR = [GRASS, STONE, BRICK, PLANKS, HEART, CANDY, GLOW, GLASS, LEAVES];
 
 // ---------- Alat (item yang tak boleh diletak) ----------
+// Ikon paket benih: sampul krim dengan bulatan berwarna tanaman
+const seedPacket = (color) => (x, y) => {
+  if (x < 4 || x > 11 || y < 2 || y > 13) return null;
+  if (x === 4 || x === 11 || y === 2 || y === 13) return 'c9a36a';
+  return Math.hypot(x - 7.5, y - 8) < 2.4 ? color : y < 5 ? '6de38a' : 'fff2d6';
+};
 const PICK_W = 100, AXE_W = 101, SHOVEL_W = 102, PICK_S = 103, AXE_S = 104, SHOVEL_S = 105, PICK_C = 106;
 const APPLE = 110, CAKE = 111, JELLY = 112, FIREWORK = 116;
 // speed: berapa kali lebih laju pada block yang sesuai; uses: ketahanan
@@ -107,6 +122,26 @@ const ITEMS = {
     },
   },
   // food: berapa mata lapar dipulihkan (bar penuh = 20)
+  [SEED_STRAW]: { name: 'Benih Strawberi', seed: STRAW_SPROUT, pixel: seedPacket('ff3b5c') },
+  [SEED_CARROT]: { name: 'Benih Lobak', seed: CARROT_SPROUT, pixel: seedPacket('ff8c2a') },
+  [SEED_FLOWER]: { name: 'Benih Bunga', seed: FLOWER_SPROUT, pixel: seedPacket('ff7fe0') },
+  [STRAWBERRY]: {
+    name: 'Strawberi', food: 3,
+    pixel: (x, y) => {
+      if (y >= 2 && y <= 4 && Math.abs(x - 7.5) < 4 - Math.abs(y - 3)) return '5fd08a';
+      const w = y < 8 ? 5 : 5 - (y - 8) * 0.8;
+      if (y >= 4 && y <= 13 && Math.abs(x - 7.5) <= w) return (x + y * 2) % 5 === 0 ? 'ffe14f' : 'ff3b5c';
+      return null;
+    },
+  },
+  [CARROT]: {
+    name: 'Lobak', food: 3,
+    pixel: (x, y) => {
+      if (y <= 4 && (x === 6 || x === 8 || x === 10) && y >= 1) return '5fd08a';
+      if (y >= 5 && y <= 14 && Math.abs(x - 8) <= (14 - y) * 0.4 + 0.5) return y % 3 === 0 ? 'e87510' : 'ff8c2a';
+      return null;
+    },
+  },
   [FIREWORK]: {
     name: 'Bunga Api', firework: true,
     pixel: (x, y) => {
@@ -341,6 +376,30 @@ const TILES = [
   },
   // 50 pagar kayu: dua tiang dan dua palang, selebihnya lutsinar
   (x, y) => ((x >= 1 && x <= 2) || (x >= 13 && x <= 14) ? '9b6a3c' : (y >= 4 && y <= 5) || (y >= 10 && y <= 11) ? 'c98a5a' : '00000000'),
+  // 51 anak strawberi: pucuk hijau dengan bunga putih
+  (x, y) => (y >= 10 && x % 4 === 2 ? '49bd77' : (y === 10 || y === 11) && (x % 4 === 1 || x % 4 === 3) ? '5fd08a' : y === 9 && x % 8 === 2 ? 'ffffff' : '00000000'),
+  // 52 pokok strawberi masak
+  (x, y) => {
+    if (y < 6 || ((x < 2 || x > 13) && y < 8)) return '00000000';
+    if (y >= 8 && x % 5 === 2 && y % 4 === 1) return 'ff3b5c';
+    if (y >= 8 && x % 5 === 2 && y % 4 === 0) return '5fd08a';
+    return pick(x, y, 17, ['49bd77', '49bd77', '5fd08a']);
+  },
+  // 53 anak lobak: daun halus
+  (x, y) => (y >= 11 && x % 3 === 1 ? '7fe0a4' : y === 10 && x % 6 === 1 ? '7fe0a4' : '00000000'),
+  // 54 pokok lobak masak: daun lebat, bahu lobak jingga di pangkal
+  (x, y) => {
+    if (y >= 13) return x % 4 === 1 || x % 4 === 2 ? 'ff8c2a' : '00000000';
+    if (y >= 5 && x >= 1 && x <= 14 && (x + y) % 2 === 0) return y < 8 ? '7fe0a4' : '5fd08a';
+    return '00000000';
+  },
+  // 55 anak bunga: batang, daun dan kudup
+  (x, y) => {
+    if (x >= 6 && x <= 9 && y >= 5 && y <= 7) return 'ff7fe0';
+    if ((x === 7 || x === 8) && y >= 8) return '49bd77';
+    if (y === 11 && x >= 5 && x <= 10) return '5fd08a';
+    return '00000000';
+  },
 ];
 const ATLAS_ROWS = 16; // atlas 4 lajur x 16 baris petak 16x16
 
@@ -424,7 +483,8 @@ function writeSave() {
       seed: save.seed, gen: pendingUpgrade ? 2 : GEN, base: pendingUpgrade || UPGRADED ? 1 : 0, fix: pendingUpgrade ? 1 : 0, edits: flat,
       player: [player.x, player.y, player.z, yaw, pitch], slot: selected,
       houses: houseSites, housesV: houseVersion, parks: parkSites,
-      stickers: [...earned], stats, look: myLook, music: musicOn ? 1 : 0, gift: 1,
+      stickers: [...earned], stats, look: myLook, music: musicOn ? 1 : 0, gift: 2,
+      petsC: critters.filter((c) => c.tame).map((c) => [c.kind, Math.round(c.x * 10) / 10, Math.round(c.y * 10) / 10, Math.round(c.z * 10) / 10]),
       pets: mobs.filter((m) => m.tame).map((m) => [Math.round(m.x * 10) / 10, Math.round(m.y * 10) / 10, Math.round(m.z * 10) / 10]),
       mode, controls: consoleMode ? 'console' : 'touch', health, hunger, time: Math.round(dayTime), inv: inv.map((it) => (it ? (it.dur ? [it.id, it.count, it.dur] : [it.id, it.count]) : 0)),
     }));
@@ -447,7 +507,7 @@ function isSolid(x, y, z) {
   if (y >= H) return false;
   if (x < 0 || x >= W || z < 0 || z >= D || y < 0) return true;
   const id = world[idx(x, y, z)];
-  return id !== AIR && id !== WATER;
+  return id !== AIR && !BLOCKS[id].passable;
 }
 
 // GEN 1 = dunia lama (bukit dan pokok sahaja).
@@ -1177,6 +1237,7 @@ function buildChunk(cx, cz) {
 
 for (let cz = 0; cz < D / CHUNK; cz++) for (let cx = 0; cx < W / CHUNK; cx++) buildChunk(cx, cz);
 
+let growHook = null; // dipasang oleh bahagian Kebun
 let netHook = null; // dipasang oleh bahagian Main Bersama
 function setBlock(x, y, z, id) {
   if (!inBounds(x, y, z)) return;
@@ -1194,6 +1255,7 @@ function setBlock(x, y, z, id) {
   if (lz === 0 && cz > 0) dirtyChunks.add(chunkKey(cx, cz - 1));
   if (lz === CHUNK - 1 && cz < D / CHUNK - 1) dirtyChunks.add(chunkKey(cx, cz + 1));
   if (netHook) netHook(i, id);
+  if (growHook) growHook(i, id);
 }
 
 // ---------- Awan ----------
@@ -1854,6 +1916,7 @@ function pet(m) {
 const LOOT = [
   [KRISTAL, 1, 3, 30], [EMAS, 1, 2, 20], [PERMATA, 1, 1, 8], [CAKE, 1, 1, 12],
   [APPLE, 2, 2, 15], [GLOW, 2, 2, 8], [RAINBOW, 3, 3, 7], [FIREWORK, 2, 3, 14],
+  [SEED_STRAW, 1, 2, 10], [SEED_CARROT, 1, 2, 10], [SEED_FLOWER, 1, 2, 8],
 ];
 let treasures = 0;
 function openChest(x, y, z) {
@@ -1881,7 +1944,17 @@ function breakBlock(hit) {
   const def = BLOCKS[hit.id];
   if (def.chest) { openChest(hit.x, hit.y, hit.z); return; }
   if (mode === 'survival') {
-    spawnDrop(hit.x, hit.y, hit.z, def.drop || hit.id);
+    if (def.drops) {
+      for (const [id, min, max] of def.drops) {
+        const amount = min + Math.floor(Math.random() * (max - min + 1));
+        for (let k = 0; k < amount; k++) spawnDrop(hit.x, hit.y, hit.z, id);
+      }
+      if (def.harvest) award('kebun');
+    } else {
+      spawnDrop(hit.x, hit.y, hit.z, def.drop || hit.id);
+    }
+    // Rumput kadang-kadang menyimpan benih
+    if (hit.id === GRASS && Math.random() < 0.15) spawnDrop(hit.x, hit.y, hit.z, [SEED_STRAW, SEED_CARROT, SEED_FLOWER][Math.floor(Math.random() * 3)]);
     // Bunga sakura kadang-kadang gugurkan epal
     if (hit.id === LEAVES && Math.random() < 0.2) spawnDrop(hit.x, hit.y, hit.z, APPLE);
     exhaust += 0.03;
@@ -1897,6 +1970,7 @@ function doPlace(sx, sy) {
   if (ITEMS[heldId()] && ITEMS[heldId()].food) { eat(); return; }
   if (ITEMS[heldId()] && ITEMS[heldId()].firework) { launchFirework(); return; }
   if (!hit) { showToast('Terlalu jauh - dekati block'); return; }
+  if (ITEMS[heldId()] && ITEMS[heldId()].seed) { plantSeed(hit); return; }
   const x = hit.x + hit.face[0], y = hit.y + hit.face[1], z = hit.z + hit.face[2];
   if (!inBounds(x, y, z) || (world[idx(x, y, z)] !== AIR && world[idx(x, y, z)] !== WATER)) return;
   // Jangan letak block di dalam badan pemain
@@ -1927,6 +2001,19 @@ function tamePinky(m) {
   setTimeout(() => beep(1320, 0.18, 'sine', 0.08), 200);
   showToast('Pinky kini kawan awak! Tekan padanya untuk tunggang');
 }
+function tameCritter(m) {
+  consumeHeld();
+  m.tame = true;
+  m.bow.visible = true;
+  saveDirty = true;
+  award('peliharaan');
+  spawnHearts(m.x, m.y + 0.6, m.z);
+  spawnHearts(m.x, m.y + 1, m.z);
+  beep(660, 0.1, 'sine', 0.08);
+  setTimeout(() => beep(990, 0.1, 'sine', 0.08), 100);
+  setTimeout(() => beep(1320, 0.18, 'sine', 0.08), 200);
+  showToast('Ia kini kawan awak dan akan ikut awak!');
+}
 function startRide(m) {
   riding = m;
   award('tunggang');
@@ -1945,7 +2032,14 @@ function interact(res) {
   if (m) {
     if (m.isPinky && !m.tame && heldId() === APPLE) tamePinky(m);
     else if (m.isPinky && m.tame && riding !== m) startRide(m);
-    else { pet(m); if (!m.isPinky) award('usap'); }
+    else if (m.def && m.def.likes && !m.tame && m.def.likes(heldId())) tameCritter(m);
+    else {
+      pet(m);
+      if (!m.isPinky) {
+        award('usap');
+        if (m.def.likes && !m.tame) showToast(m.def.likeText);
+      }
+    }
     return true;
   }
   if (res.jelly) { hitJelly(res.jelly); return true; }
@@ -1954,9 +2048,12 @@ function interact(res) {
 }
 
 // ---------- Haiwan kecil: arnab, anak ayam, ketam, rama-rama, ikan ----------
+// likes: makanan yang menjinakkan haiwan ini; bow: kedudukan reben tanda jinak (unit model)
 const CRITTER = {
-  bunny: { hw: 0.25, h: 0.6, leash: 12, hop: true },
-  chick: { hw: 0.2, h: 0.5, leash: 12, speed: 1 },
+  bunny: { hw: 0.25, h: 0.6, leash: 12, hop: true, bow: [0, 6, 0], likes: (id) => id === CARROT, likeText: 'Arnab suka Lobak!' },
+  chick: { hw: 0.2, h: 0.5, leash: 12, speed: 1, bow: [0, 8.6, 1.5], likes: (id) => !!(ITEMS[id] && ITEMS[id].seed), likeText: 'Anak ayam suka benih!' },
+  kitten: { hw: 0.2, h: 0.5, leash: 3, speed: 1.2, bow: [0, 6.2, 0], likes: (id) => !!(ITEMS[id] && ITEMS[id].food), likeText: 'Kucing lapar - beri makanan!' },
+  puppy: { hw: 0.22, h: 0.55, leash: 3, speed: 1.4, bow: [0, 7, 0], likes: (id) => !!(ITEMS[id] && ITEMS[id].food), likeText: 'Anjing lapar - beri makanan!' },
   crab: { hw: 0.25, h: 0.35, leash: 6, speed: 1.4, sideways: true },
   butterfly: { fly: true },
   fish: { swim: true },
@@ -2009,6 +2106,28 @@ function makeCritterModel(kind) {
       inner.add(pivot);
       return pivot;
     });
+  } else if (kind === 'kitten') {
+    part(inner, 4, 4, 7, 0xffb347, 0, 3.5, 0);
+    part(inner, 4, 4, 4, 0xffb347, 0, 6.5, 4);
+    part(inner, 1.2, 1.5, 1, 0xff9a3c, -1.2, 9.2, 4.5);
+    part(inner, 1.2, 1.5, 1, 0xff9a3c, 1.2, 9.2, 4.5);
+    part(inner, 1, 4, 1, 0xff9a3c, 0, 6.5, -3.5);
+    part(inner, 0.7, 0.9, 0.4, DARK, -1, 7.1, 6.05);
+    part(inner, 0.7, 0.9, 0.4, DARK, 1, 7.1, 6.05);
+    part(inner, 0.9, 0.6, 0.4, 0xff7fbf, 0, 6.1, 6.05);
+    part(inner, 2.4, 1.6, 0.4, 0xffffff, 0, 5.2, 6.02);
+    for (const [x, z] of [[-1.2, 2.5], [1.2, 2.5], [-1.2, -2.5], [1.2, -2.5]]) part(inner, 1, 1.5, 1, 0xffffff, x, 0.75, z);
+  } else if (kind === 'puppy') {
+    part(inner, 5, 4.5, 7, 0xc98a5a, 0, 4, 0);
+    part(inner, 4.5, 4.5, 4.5, 0xc98a5a, 0, 7, 4.2);
+    part(inner, 1.2, 3, 2.2, 0x8f566c, -2.8, 6.8, 4.2);
+    part(inner, 1.2, 3, 2.2, 0x8f566c, 2.8, 6.8, 4.2);
+    part(inner, 2.6, 2, 1.6, 0xffffff, 0, 6.2, 6.9);
+    part(inner, 1, 0.8, 0.5, DARK, 0, 6.9, 7.8);
+    part(inner, 0.7, 0.9, 0.4, DARK, -1.1, 8.1, 6.5);
+    part(inner, 0.7, 0.9, 0.4, DARK, 1.1, 8.1, 6.5);
+    part(inner, 1, 1, 3, 0x8f566c, 0, 6, -4.6);
+    for (const [x, z] of [[-1.5, 2.5], [1.5, 2.5], [-1.5, -2.5], [1.5, -2.5]]) part(inner, 1.4, 1.8, 1.4, 0xc98a5a, x, 0.9, z);
   } else {
     part(inner, 2, 3.5, 5, Math.random() < 0.5 ? 0xff9a3c : 0x6fb7ff, 0, 0, 0);
     parts.tail = part(inner, 0.6, 3, 2.5, 0xffffff, 0, 0, -3.5);
@@ -2019,13 +2138,18 @@ function makeCritterModel(kind) {
 }
 
 const critters = [];
-function spawnCritter(kind, x, y, z) {
+function spawnCritter(kind, x, y, z, tame) {
   const def = CRITTER[kind];
   const c = {
     ...makeCritterModel(kind), kind, def, x, y, z, hx: x, hy: y, hz: z, tx: x, ty: y, tz: z,
     vx: 0, vy: 0, vz: 0, hw: def.hw || 0.2, h: def.h || 0.3, onGround: false, floats: true,
-    yaw: Math.random() * Math.PI * 2, timer: Math.random() * 2, walking: false, phase: Math.random() * 10,
+    yaw: Math.random() * Math.PI * 2, timer: Math.random() * 2, walking: false, phase: Math.random() * 10, tame: !!tame,
   };
+  // Reben merah menandakan haiwan yang sudah jinak
+  if (def.bow) {
+    c.bow = part(c.inner, 2.6, 1.6, 1.2, 0xff2f6d, def.bow[0], def.bow[1], def.bow[2]);
+    c.bow.visible = c.tame;
+  }
   c.group.userData.mob = c; // boleh diusap macam Pinky
   c.group.position.set(x, y, z);
   scene.add(c.group);
@@ -2047,8 +2171,21 @@ function spawnCritter(kind, x, y, z) {
   spawnMany(6, 'crab', (below) => below === SAND, 0);
   spawnMany(10, 'fish', (below, x, y, z) => below === WATER && world[idx(x, y - 2, z)] === WATER, -1.5);
 }
+// Haiwan jinak dari simpanan: [jenis, x, y, z]
+const savedPets = Array.isArray(save.petsC)
+  ? save.petsC.filter((s) => Array.isArray(s) && s.length === 4 && CRITTER[s[0]] && s.slice(1).every(Number.isFinite)).slice(0, 16)
+  : [];
+for (const [kind, x, y, z] of savedPets) spawnCritter(kind, x, y, z, true);
+// Seekor anak kucing tinggal di Humaira House dan seekor anak anjing di Alisa House (kalau belum dijinakkan dan dibawa pergi)
+if (houseSites.length === 2 && houseVersion === HOUSE_V) {
+  [['kitten', houseSites[0]], ['puppy', houseSites[1]]].forEach(([kind, site]) => {
+    if (!savedPets.some((s) => s[0] === kind)) spawnCritter(kind, site[0] + 5.5, site[1] + 1, site[2] + 5.5);
+  });
+}
 
 function updateCritter(c, dt, time) {
+  // Haiwan jinak yang tertinggal jauh muncul semula di sebelah pemain
+  if (c.tame && Math.hypot(player.x - c.x, player.z - c.z) > 26) { c.x = player.x + 1; c.y = player.y + 0.5; c.z = player.z; c.vy = 0; }
   const far = (c.x - player.x) ** 2 + (c.z - player.z) ** 2;
   c.group.visible = far < 70 * 70;
   if (far > 45 * 45) return; // yang jauh tak perlu bergerak
@@ -2085,13 +2222,18 @@ function updateCritter(c, dt, time) {
     }
     c.group.position.set(c.x, c.y + (def.fly ? Math.sin(time * 5 + c.phase) * 0.08 : 0), c.z);
   } else {
-    const homeDist = Math.hypot(c.hx - c.x, c.hz - c.z);
+    const homeDist = Math.hypot(c.hx - c.x, c.hz - c.z), toPlayer = Math.hypot(player.x - c.x, player.z - c.z);
+    const follow = Math.atan2(player.x - c.x, player.z - c.z);
     if (def.hop) {
       // Arnab: melompat-lompat
       if (c.onGround && c.timer <= 0) {
-        c.timer = 0.6 + Math.random() * 1.6;
-        c.yaw = homeDist > def.leash ? Math.atan2(c.hx - c.x, c.hz - c.z) : Math.random() * Math.PI * 2;
-        c.vx = Math.sin(c.yaw) * 2.4; c.vz = Math.cos(c.yaw) * 2.4; c.vy = 5.5;
+        if (c.tame && toPlayer < 2.5) {
+          c.timer = 0.4; // sudah dekat dengan tuannya: duduk diam
+        } else {
+          c.timer = c.tame ? 0.3 : 0.6 + Math.random() * 1.6;
+          c.yaw = c.tame ? follow : homeDist > def.leash ? Math.atan2(c.hx - c.x, c.hz - c.z) : Math.random() * Math.PI * 2;
+          c.vx = Math.sin(c.yaw) * 2.4; c.vz = Math.cos(c.yaw) * 2.4; c.vy = 5.5;
+        }
       }
       moveEntity(c, dt);
       if (c.onGround) c.vx = c.vz = 0;
@@ -2102,7 +2244,8 @@ function updateCritter(c, dt, time) {
         c.walking = Math.random() < 0.65;
         if (c.walking) c.yaw = homeDist > def.leash ? Math.atan2(c.hx - c.x, c.hz - c.z) : Math.random() * Math.PI * 2;
       }
-      const speed = c.walking ? def.speed : 0;
+      if (c.tame) { c.walking = toPlayer > 2.5; c.yaw = follow; }
+      const speed = c.walking ? def.speed * (c.tame ? 2.4 : 1) : 0;
       c.vx = Math.sin(c.yaw) * speed; c.vz = Math.cos(c.yaw) * speed;
       const px = c.x, pz = c.z;
       if (moveEntity(c, dt) && c.onGround && speed > 0) c.vy = 7;
@@ -2910,6 +3053,8 @@ const STICKERS = [
   { id: 'tidur', icon: '\u{1F6CF}\uFE0F', name: 'Selamat Malam', hint: 'Tidur di katil waktu malam' },
   { id: 'bunga_api', icon: '\u{1F386}', name: 'Pesta Bunga Api', hint: 'Lancarkan bunga api' },
   { id: 'kawan', icon: '\u{1F91D}', name: 'Main Bersama', hint: 'Main dengan kawan dalam satu bilik' },
+  { id: 'kebun', icon: '\u{1F353}', name: 'Pekebun', hint: 'Tuai strawberi atau lobak yang masak' },
+  { id: 'peliharaan', icon: '\u{1F431}', name: 'Kawan Baru', hint: 'Jinakkan arnab, ayam, kucing atau anjing' },
 ];
 const FURNITURE = new Set([BED_HEAD, BED_FOOT, SOFA, TABLE, TV, KITCHEN, WARDROBE, SHELF, RUG, PAINT_PINKY, PAINT_RAINBOW, FLOWERS, FENCE]);
 const earned = new Set(Array.isArray(save.stickers) ? save.stickers.filter((id) => STICKERS.some((st) => st.id === id)) : []);
@@ -3136,6 +3281,38 @@ function updateFireworks(dt) {
 }
 // Hadiah sekali: beberapa bunga api untuk dicuba
 if (!save.gift && !guest) for (let i = 0; i < 5; i++) addItem(FIREWORK);
+
+// ---------- Kebun ----------
+// Benih ditanam di atas rumput atau tanah; anak pokok matang sendiri selepas beberapa lama (lebih cepat bila hujan)
+const sprouts = new Set();
+edits.forEach((id, i) => { if (id && BLOCKS[id].grows) sprouts.add(i); });
+growHook = (i, id) => { if (id && BLOCKS[id].grows) sprouts.add(i); else sprouts.delete(i); };
+function plantSeed(hit) {
+  const soil = hit.id === GRASS || hit.id === DIRT || hit.id === FIELD;
+  if (!soil || hit.face[1] !== 1 || getBlock(hit.x, hit.y + 1, hit.z) !== AIR || hit.y + 1 >= H) {
+    showToast('Tanam di atas rumput atau tanah');
+    return;
+  }
+  setBlock(hit.x, hit.y + 1, hit.z, ITEMS[heldId()].seed);
+  consumeHeld();
+  beep(520, 0.07, 'triangle', 0.06);
+  showToast('Benih ditanam - tunggu ia tumbuh');
+}
+let growTimer = 0;
+function growTick(dt) {
+  growTimer += dt;
+  if (growTimer < 2) return;
+  growTimer = 0;
+  if (net.role === 'guest') return; // dalam bilik kawan, hos yang menumbuhkan tanaman
+  const chance = weather.raining ? 0.08 : 0.04;
+  for (const i of [...sprouts]) {
+    const def = BLOCKS[world[i]];
+    if (!def || !def.grows) { sprouts.delete(i); continue; }
+    if (Math.random() < chance) setBlock(i % W, Math.floor(i / (W * D)), Math.floor(i / W) % D, def.grows);
+  }
+}
+// Hadiah sekali: benih untuk mula berkebun
+if ((save.gift || 0) < 2 && !guest) for (const seed of [SEED_STRAW, SEED_CARROT, SEED_FLOWER]) for (let i = 0; i < 3; i++) addItem(seed);
 
 // ---------- Kawalan ----------
 const overlay = document.getElementById('overlay');
@@ -3690,6 +3867,7 @@ function frame(now) {
   }
   updateJellies(dt);
   netTick(dt);
+  if (playing && !bagOpen && !dead) growTick(dt);
   updateFireworks(dt);
   musicTick(dt);
   updateHearts(dt);
@@ -3727,7 +3905,7 @@ requestAnimationFrame(frame);
 window.__pink = { player, mobs, world, getBlock, setBlock, doPlace, breakBlock, get treasures() { return treasures; }, mining, inv, drops, addItem, heldId, RECIPES, craft, ITEMS, renderHotbar, damage, renderStats,
   get health() { return health; }, set health(v) { health = v; },
   get hunger() { return hunger; }, set hunger(v) { hunger = v; },
-  get dead() { return dead; }, jellies, lightAt, earned, award, look: myLook, sleepInBed, launchFirework, rockets, sparks, parkSites, houseSites, houseVersion, net, avatars, netHost, netJoin, netLeave, guest, critters, GEN, UPGRADED, kickBall, interact, weather, setRain,
+  get dead() { return dead; }, jellies, lightAt, sprouts, plantSeed, tameCritter, earned, award, look: myLook, sleepInBed, launchFirework, rockets, sparks, parkSites, houseSites, houseVersion, net, avatars, netHost, netJoin, netLeave, guest, critters, GEN, UPGRADED, kickBall, interact, weather, setRain,
   get rainAmt() { return rainAmt; }, get rainbowAmt() { return rainbowAmt; },
   get ball() { return ball; }, get riding() { return riding; }, get goals() { return goals; }, get consoleMode() { return consoleMode; },
   get dayTime() { return dayTime; }, set dayTime(v) { dayTime = v; }, get daylight() { return daylight; },
