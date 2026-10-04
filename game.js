@@ -1,4 +1,5 @@
 import * as THREE from './three.module.min.js';
+import { transferStack, validateBackup } from './world-tools.mjs';
 
 // ---------- Tetapan dunia ----------
 const W = 192, D = 192, H = 48, CHUNK = 16;
@@ -19,7 +20,7 @@ const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, LOG = 4, LEAVES = 5, BRICK = 6, P
   BED_HEAD = 30, BED_FOOT = 31, SHELF = 32, RUG = 33, PAINT_PINKY = 34, PAINT_RAINBOW = 35, FLOWERS = 36,
   SOFA = 37, TABLE = 38, TV = 39, KITCHEN = 40, WARDROBE = 41, FENCE = 42,
   STRAW_SPROUT = 43, STRAW_RIPE = 44, CARROT_SPROUT = 45, CARROT_RIPE = 46, FLOWER_SPROUT = 47,
-  SLIDE = 48, WSLIDE = 49, GRASS_G = 50, LEAVES_G = 51, RAIL = 52, SHOP_ICE = 53, SHOP_CANDY = 54;
+  SLIDE = 48, WSLIDE = 49, GRASS_G = 50, LEAVES_G = 51, RAIL = 52, SHOP_ICE = 53, SHOP_CANDY = 54, STORAGE = 55;
 // Item yang digugurkan oleh bijih (ditakrif di sini kerana BLOCKS merujuknya)
 const KRISTAL = 113, EMAS = 114, PERMATA = 115;
 // Benih dan hasil kebun (juga dirujuk oleh BLOCKS)
@@ -58,6 +59,7 @@ const BLOCKS = {
   [CRYSTAL_BLOCK]: { name: 'Block Kristal', hard: 1, tool: 'pick', tiles: [28, 28, 28], glow: true },
   [GOLD_BLOCK]: { name: 'Block Emas', hard: 1, tool: 'pick', tiles: [29, 29, 29] },
   // chest: bila dipukul atau ditekan, pecah dan menggugurkan harta
+  [STORAGE]: { name: 'Peti Simpan', hard: 1, tool: 'axe', tiles: [8, 8, 30] },
   [CHEST]: { name: 'Peti Harta', hard: 0.5, tiles: [31, 31, 30], chest: true },
   [SAND_X]: { name: 'Pasir Bertanda X', hard: 0.5, tool: 'shovel', tiles: [32, 14, 14], drop: SAND },
   // Perabot dan hiasan rumah
@@ -543,12 +545,11 @@ let saveDirty = false;
 const saveStatus = document.getElementById('saveStatus');
 saveStatus.textContent = saveWarning || 'Dunia disimpan secara automatik pada peranti ini.';
 
-function writeSave() {
-  if (!saveDirty || saveWarning) return;
+function snapshotWorld() {
   const flat = [];
   edits.forEach((id, i) => flat.push(i, id));
-  try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify({
+  return {
+      storage: Object.fromEntries(Object.entries(storage).filter(([key]) => world[Number(key)] === STORAGE).map(([key, list]) => [key, list.map(it => it ? [it.id, it.count, ...(it.dur ? [it.dur] : [])] : 0)])), home: homeMarker,
       seed: save.seed, size: 2, gen: pendingUpgrade ? 2 : GEN, base: pendingUpgrade || UPGRADED ? 1 : 0, fix: pendingUpgrade ? 1 : 0, edits: flat,
       player: [player.x, player.y, player.z, yaw, pitch], slot: selected,
       houses: houseSites, housesV: houseVersion, parks: parkSites,
@@ -556,7 +557,12 @@ function writeSave() {
       petsC: critters.filter((c) => c.tame).map((c) => [c.kind, Math.round(c.x * 10) / 10, Math.round(c.y * 10) / 10, Math.round(c.z * 10) / 10]),
       pets: mobs.filter((m) => m.tame).map((m) => [Math.round(m.x * 10) / 10, Math.round(m.y * 10) / 10, Math.round(m.z * 10) / 10]),
       mode, controls: consoleMode ? 'console' : 'touch', health, hunger, time: Math.round(dayTime), inv: inv.map((it) => (it ? (it.dur ? [it.id, it.count, it.dur] : [it.id, it.count]) : 0)),
-    }));
+  };
+}
+function writeSave() {
+  if (!saveDirty || saveWarning) return;
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify(snapshotWorld()));
     saveDirty = false;
     saveStatus.textContent = 'Disimpan pada ' + new Date().toLocaleTimeString('ms-MY');
     saveStatus.classList.remove('error');
@@ -2285,6 +2291,11 @@ function openChest(x, y, z) {
   showToast('Harta karun! Peti ke-' + treasures + ' dibuka');
 }
 function breakBlock(hit) {
+  if (hit.id === STORAGE) {
+    if (guest || net.role === 'guest') { showToast('Peti ini milik hos.'); return; }
+    if (storage[idx(hit.x, hit.y, hit.z)]?.some(Boolean)) { showToast('Kosongkan peti dahulu sebelum pecahkan.'); return; }
+    delete storage[idx(hit.x, hit.y, hit.z)];
+  }
   setBlock(hit.x, hit.y, hit.z, AIR);
   burst(hit.x, hit.y, hit.z, hit.id);
   const def = BLOCKS[hit.id];
@@ -2310,6 +2321,7 @@ function breakBlock(hit) {
 
 function doPlace(sx, sy) {
   const res = aim(sx, sy), hit = res.hit;
+  if (hit?.id === STORAGE) { openStorage(hit); return; }
   if (interact(res)) return;
   if (hit && BLOCKS[hit.id].chest) { breakBlock(hit); return; } // tekan peti untuk buka
   if (hit && BLOCKS[hit.id].gives) { useShop(hit); return; }
@@ -2325,6 +2337,7 @@ function doPlace(sx, sy) {
       z + 1 > player.z - player.hw && z < player.z + player.hw &&
       y + 1 > player.y && y < player.y + player.h) return;
   const id = heldId();
+  if (id === STORAGE && (guest || net.role === 'guest')) { showToast('Bina peti dalam dunia sendiri.'); return; }
   if (id === AIR) { showToast('Slot kosong - pecahkan block untuk kumpul'); return; }
   if (ITEMS[id]) { showToast(ITEMS[id].tool ? 'Ini alat - guna butang pecah pada block' : 'Ini bahan - buka Beg untuk buat sesuatu'); return; }
   setBlock(x, y, z, id);
@@ -3010,6 +3023,7 @@ const INV_SIZE = 27, HOT_SIZE = 9, STACK = 64;
 const STARTER = [[BRICK, 20], [PLANKS, 20], [HEART, 10], [CANDY, 10], [GLOW, 10], [GLASS, 10]];
 // out: [block, bilangan]; in: senarai [block, bilangan]
 const RECIPES = [
+  { out: [STORAGE, 1], in: [[PLANKS, 8]] },
   { out: [PLANKS, 4], in: [[LOG, 1]] },
   { out: [PICK_W, 1], in: [[PLANKS, 3], [LOG, 2]] },
   { out: [AXE_W, 1], in: [[PLANKS, 3], [LOG, 2]] },
@@ -3062,6 +3076,17 @@ const toastEl = document.getElementById('toast');
 const bagEl = document.getElementById('bag'), bagGrid = document.getElementById('bagGrid');
 let toastTimer = 0;
 let bagOpen = false, bagPick = -1;
+let activeStorage = null;
+const storage = Object.create(null);
+if (save.storage && typeof save.storage === 'object') for (const [key, list] of Object.entries(save.storage)) {
+  if (world[Number(key)] !== STORAGE || !Array.isArray(list)) continue;
+  storage[key] = Array.from({length: 27}, (_, i) => {
+    const it = list[i];
+    if (!Array.isArray(it) || !info(it[0]) || !Number.isInteger(it[1]) || it[1] < 1) return null;
+    return isTool(it[0]) ? {id:it[0],count:1,dur:Math.max(1,Math.min(ITEMS[it[0]].uses,it[2] || ITEMS[it[0]].uses))} : {id:it[0],count:Math.min(STACK,it[1])};
+  });
+}
+let homeMarker = Array.isArray(save.home) && save.home.length === 3 && save.home.every(Number.isInteger) ? save.home : null;
 
 const slotItem = (i) => (mode === 'creative' ? { id: HOTBAR[i], count: 0 } : inv[i]);
 function heldId() {
@@ -3213,6 +3238,29 @@ function renderRecipes() {
 }
 
 // Beg: ketik satu slot, kemudian ketik slot lain untuk tukar tempat (atau gabung kalau sama)
+function openStorage(hit) {
+  if (guest || net.role === 'guest') { showToast('Peti ini milik hos. Buka peti dalam dunia sendiri.'); return; }
+  activeStorage = idx(hit.x, hit.y, hit.z);
+  storage[activeStorage] ||= new Array(27).fill(null);
+  setBag(true);
+}
+function moveStorage(from, i, to) {
+  const before = from[i]?.count;
+  transferStack(from, i, to, maxStack);
+  if (before && from[i]?.count === before) showToast('Tiada ruang kosong.');
+  saveDirty = true;
+  renderHotbar();
+  writeSave();
+}
+function renderStorage() {
+  const panel = document.getElementById('storageSection');
+  panel.hidden = activeStorage === null;
+  document.getElementById('recipes').parentElement.hidden = activeStorage !== null;
+  document.getElementById('bagHint').textContent = activeStorage === null
+    ? 'Ketik item, kemudian slot lain untuk pindah. Baris atas ialah hotbar.'
+    : 'Ketik barang dalam beg untuk simpan; ketik barang dalam peti untuk ambil. Satu timbunan dipindahkan.';
+  if (activeStorage !== null) document.getElementById('storageGrid').replaceChildren(...storage[activeStorage].map((it, i) => makeSlot(it, () => moveStorage(storage[activeStorage], i, inv))));
+}
 function renderBag() {
   bagGrid.replaceChildren(...inv.map((it, i) => {
     const el = makeSlot(it, () => tapBag(i));
@@ -3221,8 +3269,10 @@ function renderBag() {
     return el;
   }));
   renderRecipes();
+  renderStorage();
 }
 function tapBag(i) {
+  if (activeStorage !== null) { moveStorage(inv, i, storage[activeStorage]); return; }
   if (bagPick < 0) {
     if (inv[i]) bagPick = i;
   } else if (bagPick === i) {
@@ -3244,6 +3294,7 @@ function tapBag(i) {
   renderHotbar();
 }
 function setBag(open) {
+  if (!open) activeStorage = null;
   bagOpen = open;
   bagPick = -1;
   bagEl.classList.toggle('hidden', !open);
@@ -4255,6 +4306,7 @@ function startPlaying() {
   }
 }
 function pause() {
+  activeStorage = null;
   playing = false;
   bagOpen = false;
   bagEl.classList.add('hidden');
@@ -4581,6 +4633,7 @@ function hostData(conn, m) {
     showToast('Kawan masuk ke bilik!');
   } else if (m.t === 'b') {
     if (!validEdit(m.i, m.id)) return;
+    if (world[m.i] === STORAGE || m.id === STORAGE) { conn.send({ t: 'b', i: m.i, id: world[m.i] }); return; }
     applyRemote(m.i, m.id);
     netSend({ t: 'b', i: m.i, id: m.id }, id);
   } else if (m.t === 'p') {
@@ -4803,3 +4856,88 @@ window.__pink = { player, mobs, world, getBlock, setBlock, doPlace, breakBlock, 
   get dayTime() { return dayTime; }, set dayTime(v) { dayTime = v; }, get daylight() { return daylight; },
   // Gambar dunia 3D sahaja (tanpa butang), untuk semakan rupa
   shot: () => { renderer.render(scene, camera); return canvas.toDataURL('image/jpeg', 0.7); }, get mode() { return mode; }, surfaceY, startPlaying, selectSlot, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, get pitch() { return pitch; }, set pitch(v) { pitch = v; } };
+
+
+// ---------- Peta dan sandaran dunia ----------
+const mapPanel = document.getElementById('mapPanel');
+const mapCanvas = document.getElementById('worldMap');
+let mapTarget = null;
+function mapLocations() {
+  const points = [{name:'Tempat Mula', x:SPAWN_X, z:SPAWN_Z}];
+  houseSites.forEach((p,i) => points.push({name:HOUSES[i].name, x:p[0]+HW/2, z:p[2]+HD/2}));
+  if (GEN === 2) for (const [name,zone] of [['Kampung Ceria',VILLAGE_ZONE],['Taman Tema',THEME_ZONE],['Taman Air',WATER_ZONE]]) points.push({name,x:(zone.x0+zone.x1)/2,z:(zone.z0+zone.z1)/2});
+  if (parkSites.tower) points.push({name:'Menara',x:parkSites.tower[0],z:parkSites.tower[2]});
+  if (homeMarker) points.push({name:'Rumah Saya',x:homeMarker[0],z:homeMarker[2]});
+  return points;
+}
+function drawWorldMap() {
+  const ctx=mapCanvas.getContext('2d'), scale=mapCanvas.width/W;
+  const colors = {[WATER]:'#63b7ea',[SAND]:'#f7dc9b',[GRASS]:'#ee93bd',[GRASS_G]:'#87b775',[LEAVES]:'#ffc4e1',[LEAVES_G]:'#569354',[STONE]:'#aa97bb',[FIELD]:'#6bba77',[RAINBOW]:'#bd98ef'};
+  for(let z=0;z<D;z++) for(let x=0;x<W;x++) {
+    let y=H-1; while(y>0 && getBlock(x,y,z)===AIR)y--;
+    const id=getBlock(x,y,z);
+    ctx.fillStyle=colors[id] || '#d299ac'; ctx.fillRect(x*scale,z*scale,scale,scale);
+  }
+  function dot(x,z,color,r) {ctx.beginPath();ctx.arc(x*scale,z*scale,r,0,Math.PI*2);ctx.fillStyle=color;ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();}
+  mapLocations().forEach(p=>dot(p.x,p.z,'#54274f',5));
+  if(mapTarget) {
+    ctx.beginPath();ctx.moveTo(player.x*scale,player.z*scale);ctx.lineTo(mapTarget.x*scale,mapTarget.z*scale);ctx.strokeStyle='#fff';ctx.lineWidth=3;ctx.setLineDash([6,4]);ctx.stroke();ctx.setLineDash([]);
+    dot(mapTarget.x,mapTarget.z,'#ffd633',8);
+  }
+  dot(player.x,player.z,'#e52e49',7);
+  ctx.beginPath();ctx.moveTo(player.x*scale,player.z*scale);ctx.lineTo((player.x-Math.sin(yaw)*5)*scale,(player.z-Math.cos(yaw)*5)*scale);ctx.strokeStyle='#e52e49';ctx.lineWidth=4;ctx.stroke();
+  document.getElementById('mapInfo').textContent=mapTarget ? mapTarget.name+' · '+Math.round(Math.hypot(player.x-mapTarget.x,player.z-mapTarget.z))+' block dari awak' : 'Lokasi awak: '+Math.floor(player.x)+', '+Math.floor(player.z);
+}
+function showMap() {
+  pause(); mapPanel.classList.remove('hidden'); mapTarget=null;
+  document.getElementById('mapPlaces').replaceChildren(...mapLocations().map(p=>{const b=document.createElement('button');b.textContent=p.name;b.onclick=()=>{mapTarget=p;drawWorldMap();};return b;}));
+  document.getElementById('markHome').disabled=!!guest;
+  drawWorldMap();
+}
+document.getElementById('mapBtn').onclick=showMap;
+document.getElementById('mapClose').onclick=()=>mapPanel.classList.add('hidden');
+document.getElementById('markHome').onclick=()=>{homeMarker=[Math.floor(player.x),Math.max(0,Math.min(H-1,Math.floor(player.y))),Math.floor(player.z)];saveDirty=true;writeSave();showMap();};
+const backupPanel=document.getElementById('backupPanel'), backupInfo=document.getElementById('backupInfo'), importConfirm=document.getElementById('confirmImport');
+const PRE_IMPORT_KEY=SAVE_KEY+'-before-import';
+let pendingImport=null;
+const backupRules={width:W,depth:D,height:H,blocks:BLOCKS,items:ITEMS,storageId:STORAGE};
+function stageImport(raw,label) {
+  pendingImport=validateBackup(JSON.parse(raw),backupRules);
+  backupInfo.textContent=label+': dunia seed '+pendingImport.seed+'. Dunia sekarang akan diganti. Salinan sebelum import akan disimpan pada peranti ini.';
+  importConfirm.hidden=false;
+}
+document.getElementById('backupBtn').onclick=()=>{
+  pause();pendingImport=null;importConfirm.hidden=true;backupPanel.classList.remove('hidden');
+  backupInfo.textContent=guest ? 'Keluar bilik kawan dahulu untuk mengurus dunia sendiri.' : 'Fail sandaran mengandungi kemajuan dunia ini.';
+  for(const id of ['exportWorld','importWorld','restoreWorld']) document.getElementById(id).disabled=!!guest || (id!=='exportWorld' && !!net.role);
+  if(!guest && net.role) backupInfo.textContent='Eksport tersedia. Tutup bilik sebelum import atau pulihkan dunia.';
+};
+document.getElementById('backupClose').onclick=()=>{pendingImport=null;importConfirm.hidden=true;backupPanel.classList.add('hidden');};
+document.getElementById('exportWorld').onclick=()=>{
+  if(guest)return;
+  try {
+    const data=saveWarning ? JSON.parse(localStorage.getItem(SAVE_KEY)) : snapshotWorld();
+    const blob=new Blob([JSON.stringify({format:'pinkcraft-backup',version:1,world:data})],{type:'application/json'});
+    const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='pinkcraft-'+new Date().toISOString().slice(0,10)+'.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+    backupInfo.textContent='Fail sandaran dimuat turun. Simpan fail ini di tempat selamat.';
+  }catch(e){backupInfo.textContent='Eksport gagal: '+e.message;}
+};
+document.getElementById('importWorld').onclick=()=>{if(!guest&&!net.role)document.getElementById('backupFile').click();};
+document.getElementById('backupFile').onchange=async(e)=>{
+  pendingImport=null;importConfirm.hidden=true;
+  const file=e.target.files[0];e.target.value='';if(!file||guest||net.role)return;
+  try {if(file.size>32*1024*1024)throw Error('Fail melebihi 32 MB.');stageImport(await file.text(),file.name);}catch(err){backupInfo.textContent='Import dibatalkan: '+err.message;}
+};
+document.getElementById('restoreWorld').onclick=()=>{
+  pendingImport=null;importConfirm.hidden=true;if(guest||net.role)return;
+  try {const raw=localStorage.getItem(PRE_IMPORT_KEY);if(!raw)throw Error('Belum ada salinan sebelum import.');stageImport(raw,'Salinan sebelum import');}catch(e){backupInfo.textContent=e.message;}
+};
+importConfirm.onclick=()=>{
+  if(!pendingImport||guest||net.role)return;
+  try {
+    const previous=saveWarning ? localStorage.getItem(SAVE_KEY) : JSON.stringify(snapshotWorld());
+    if(previous)localStorage.setItem(PRE_IMPORT_KEY,previous);
+    localStorage.setItem(SAVE_KEY,JSON.stringify(pendingImport));
+    saveWarning='Memuat dunia yang diimport.';saveDirty=false;location.reload();
+  }catch(e){backupInfo.textContent='Import gagal. Dunia semasa dikekalkan. Storan mungkin penuh: '+e.message;}
+};

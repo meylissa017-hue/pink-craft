@@ -241,6 +241,15 @@
   @media (max-width: 600px) {
     .card { border-width: 9px; padding: 10px 10px 12px; }
   }
+
+  #storageSection[hidden], #bagCols > div[hidden] { display: none; }
+  #storageGrid { display:grid; grid-template-columns:repeat(9,minmax(0,1fr)); gap:3px; margin-top:8px; }
+  #storageGrid .slot { background:#dcb6cb; width:100%; max-width:44px; height:auto; aspect-ratio:1; }
+  #storageSection { width:420px; max-width:100%; }
+  #worldMap { width:100%; max-height:48vh; object-fit:contain; image-rendering:pixelated; background:#ffdaee; }
+  #mapPlaces { display:flex; flex-wrap:wrap; gap:4px; }
+  #mapPlaces button { width:auto; flex:1 1 100px; padding:8px; font-size:12px; margin-top:4px; }
+  #mapInfo, #backupInfo { min-height:1.5em; overflow-wrap:anywhere; }
 </style>
 </head>
 <body>
@@ -268,9 +277,10 @@
 <div id="bag" class="hidden">
   <div class="card">
     <div id="bagCols">
+      <div id="storageSection" hidden><h2>Peti Simpan</h2><p>27 slot · barang kekal selepas keluar game</p><div id="storageGrid"></div></div>
       <div>
         <h2>Beg</h2>
-        <p>Ketik item, kemudian ketik slot lain untuk pindah.<br>Baris atas ialah hotbar.</p>
+        <p id="bagHint">Ketik item, kemudian ketik slot lain untuk pindah. Baris atas ialah hotbar.</p>
         <div id="bagGrid"></div>
       </div>
       <div>
@@ -304,6 +314,7 @@
     <button id="ctrlBtn"></button>
     <div class="row"><button id="gamesBtn">Permainan</button><button id="stickersBtn">Pelekat</button></div>
     <div class="row"><button id="lookBtn">Rupa Saya</button><button id="musicBtn">Muzik</button></div>
+    <div class="row"><button id="mapBtn">Peta Dunia</button><button id="backupBtn">Sandaran Dunia</button></div>
     <button id="mpBtn">Main Bersama</button>
     <button id="newWorld">Dunia Baru</button>
   </div>
@@ -359,6 +370,19 @@
 <div id="stickerPop" role="status"></div>
 <div id="sleep"></div>
 
+<div id="mapPanel" class="panel hidden"><div class="card">
+<h2>Peta Dunia</h2><p>Utara ↑ · titik merah ialah awak. Pilih destinasi untuk lihat jarak.</p>
+<canvas id="worldMap" width="576" height="576" aria-label="Peta rupa bumi dan lokasi pemain"></canvas>
+<div id="mapPlaces"></div><p id="mapInfo" role="status"></p>
+<button id="markHome">Tandakan lokasi ini sebagai rumah</button><button id="mapClose" class="close">Tutup</button>
+</div></div>
+<div id="backupPanel" class="panel hidden"><div class="card">
+<h2>Sandaran Dunia</h2><p>Simpan fail dunia ke telefon atau pulihkan fail dari peranti lain. Termasuk binaan, beg, haiwan dan isi peti.</p>
+<button id="exportWorld">Eksport Dunia</button><button id="importWorld">Pilih Fail Dunia</button>
+<input id="backupFile" type="file" accept=".json,application/json" hidden>
+<p id="backupInfo" role="status"></p><button id="confirmImport" hidden>Ganti dunia saya dengan fail ini</button>
+<button id="restoreWorld">Pulihkan dunia sebelum import</button><button id="backupClose" class="close">Tutup</button>
+</div></div>
 <script src="peerjs.min.js"></script>
 <script type="module" src="game.js"></script>
 <script>

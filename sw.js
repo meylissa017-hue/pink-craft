@@ -1,7 +1,7 @@
 // Simpan fail game supaya boleh main tanpa internet.
 // Cuba rangkaian dulu (supaya versi baru sampai), guna simpanan kalau offline.
-const CACHE = 'pinkcraft-v3';
-const FILES = ['./', 'index.html', 'game.js', 'three.module.min.js', 'peerjs.min.js', 'pixel.woff2', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
+const CACHE = 'pinkcraft-v4';
+const FILES = ['./', 'index.html', 'game.js', 'world-tools.mjs', 'three.module.min.js', 'peerjs.min.js', 'pixel.woff2', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
@@ -20,8 +20,9 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(
     fetch(e.request)
       .then((res) => {
+        if (!res.ok) throw new Error('Network response failed');
         const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(e.request, copy));
+        e.waitUntil(caches.open(CACHE).then((c) => c.put(e.request, copy)));
         return res;
       })
       .catch(() => caches.match(e.request, { ignoreSearch: true }))
