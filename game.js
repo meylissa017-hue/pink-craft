@@ -5301,6 +5301,55 @@ window.addEventListener('pagehide', () => { saveDirty = true; writeSave(); });
 let last = performance.now();
 let wasSubmerged = false, cullTimer = 0;
 const underwaterEl = document.getElementById('underwater');
+// Objek di tangan dilukis selepas dunia supaya tidak tenggelam dalam dinding.
+const handScene=new THREE.Scene();
+const handCamera=new THREE.PerspectiveCamera(50,1,0.01,10);
+const handRoot=new THREE.Group();handScene.add(handRoot);
+const handSkin=new THREE.MeshBasicMaterial({color:0xffd9b3});
+const handSleeve=new THREE.MeshBasicMaterial({color:0xff4fa3});
+const forearm=new THREE.Mesh(new THREE.BoxGeometry(.19,.43,.22),handSleeve);
+forearm.position.set(.08,-.57,.06);forearm.rotation.z=-.2;handRoot.add(forearm);
+const fist=new THREE.Mesh(new THREE.BoxGeometry(.2,.21,.23),handSkin);
+fist.position.set(.02,-.31,.08);handRoot.add(fist);
+let heldModel=null, shownHeld=-1, handSwing=0, handPhase=0;
+function rebuildHeld(id) {
+  if(heldModel){handRoot.remove(heldModel);heldModel.traverse(o=>{o.geometry?.dispose();if(o.material)for(const m of Array.isArray(o.material)?o.material:[o.material]){m.map?.dispose();m.dispose();}});}
+  heldModel=new THREE.Group();handRoot.add(heldModel);shownHeld=id;
+  if(!id)return;
+  if(ITEMS[id]){
+    // Lesung piksel berketebalan: satu instanced mesh bagi seluruh alat/makanan.
+    const pixels=[];
+    for(let y=0;y<16;y++)for(let x=0;x<16;x++){const color=itemPixel(ITEMS[id],x,y);if(color)pixels.push({x,y,color});}
+    const mesh=new THREE.InstancedMesh(new THREE.BoxGeometry(.046,.046,.065),new THREE.MeshBasicMaterial(),pixels.length);
+    const matrix=new THREE.Matrix4(),color=new THREE.Color();
+    pixels.forEach((p,i)=>{matrix.makeTranslation((p.x-7.5)*.046,(7.5-p.y)*.046,0);mesh.setMatrixAt(i,matrix);mesh.setColorAt(i,color.set('#'+p.color.slice(0,6)));});
+    mesh.instanceMatrix.needsUpdate=true;if(mesh.instanceColor)mesh.instanceColor.needsUpdate=true;
+    heldModel.add(mesh);heldModel.position.set(.15,.015,0);heldModel.rotation.set(-.1,-.35,.4);
+  }else{
+    const def=BLOCKS[id];
+    const materials=[def.tiles[2],def.tiles[2],def.tiles[0],def.tiles[1],def.tiles[2],def.tiles[2]].map(tile=>{
+      const c=document.createElement('canvas');c.width=c.height=16;c.getContext('2d').drawImage(atlasCanvas,(tile%4)*16,(tile>>2)*16,16,16,0,0,16,16);
+      const map=new THREE.CanvasTexture(c);map.magFilter=map.minFilter=THREE.NearestFilter;
+      return new THREE.MeshBasicMaterial({map,transparent:!!def.transparent,alphaTest:.05});
+    });
+    const mesh=new THREE.Mesh(new THREE.BoxGeometry(.38,.38,.38),materials);heldModel.add(mesh);heldModel.position.set(-.04,-.04,0);heldModel.rotation.set(.25,.55,.12);
+  }
+}
+function renderHand(dt,time) {
+  if(!playing||bagOpen||dead)return;
+  const id=heldId();if(id!==shownHeld)rebuildHeld(id);
+  handSkin.color.setHex(SKIN_COLORS[myLook.skin]);handSleeve.color.setHex(LOOK_COLORS[myLook.c]);
+  const moving=Math.hypot(player.vx,player.vz)>.1;
+  const swinging=!!(holdPoint||mouseMining||padMining);
+  handPhase+=dt*(swinging?13:6);
+  handSwing+=(Number(swinging)-handSwing)*Math.min(1,dt*16);
+  const aspect=canvas.clientWidth/Math.max(1,canvas.clientHeight);
+  handCamera.aspect=aspect;handCamera.updateProjectionMatrix();
+  const size=aspect<1?.7:1;handRoot.scale.setScalar(size);
+  handRoot.position.set(aspect*.42-Math.sin(handPhase)*.09*handSwing,-.35+(moving?Math.sin(time*8)*.018:0)-Math.abs(Math.sin(handPhase))*.07*handSwing,-2.1);
+  handRoot.rotation.set(-.15*handSwing,0,-.15-Math.sin(handPhase)*.3*handSwing);
+  const auto=renderer.autoClear;renderer.autoClear=false;renderer.clearDepth();renderer.render(handScene,handCamera);renderer.autoClear=auto;
+}
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
@@ -5357,6 +5406,7 @@ function frame(now) {
   updateGhost(target, time);
 
   renderer.render(scene, camera);
+  renderHand(dt,time);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
