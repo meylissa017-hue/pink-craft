@@ -30,7 +30,7 @@ const HOTBAR = [GRASS, STONE, BRICK, PLANKS, HEART, CANDY, GLOW, GLASS, LEAVES];
 
 // ---------- Alat (item yang tak boleh diletak) ----------
 const PICK_W = 100, AXE_W = 101, SHOVEL_W = 102, PICK_S = 103, AXE_S = 104, SHOVEL_S = 105;
-const APPLE = 110, CAKE = 111;
+const APPLE = 110, CAKE = 111, JELLY = 112;
 // speed: berapa kali lebih laju pada block yang sesuai; uses: ketahanan
 const ITEMS = {
   [PICK_W]: { name: 'Beliung Kayu', tool: 'pick', speed: 2, uses: 40, head: 'c2307a' },
@@ -40,6 +40,15 @@ const ITEMS = {
   [AXE_S]: { name: 'Kapak Batu', tool: 'axe', speed: 4, uses: 100, head: '8a74a0' },
   [SHOVEL_S]: { name: 'Penyodok Batu', tool: 'shovel', speed: 4, uses: 100, head: '8a74a0' },
   // food: berapa mata lapar dipulihkan (bar penuh = 20)
+  [JELLY]: {
+    name: 'Jeli Manis', food: 3,
+    pixel: (x, y) => {
+      if (x < 3 || x > 12 || y < 4 || y > 13) return null;
+      if ((y === 8 || y === 9) && (x === 5 || x === 10)) return '3a2460';
+      if (y === 11 && (x === 7 || x === 8)) return '3a2460';
+      return y <= 5 ? 'd4bcff' : 'b48cff';
+    },
+  },
   [APPLE]: {
     name: 'Epal Sakura', food: 4,
     pixel: (x, y) => {
@@ -200,7 +209,7 @@ function writeSave() {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
       seed: save.seed, edits: flat,
       player: [player.x, player.y, player.z, yaw, pitch], slot: selected,
-      mode, health, hunger, inv: inv.map((it) => (it ? (it.dur ? [it.id, it.count, it.dur] : [it.id, it.count]) : 0)),
+      mode, health, hunger, time: Math.round(dayTime), inv: inv.map((it) => (it ? (it.dur ? [it.id, it.count, it.dur] : [it.id, it.count]) : 0)),
     }));
   } catch (e) { /* storan penuh atau disekat: game tetap jalan tanpa simpan */ }
 }
@@ -257,6 +266,56 @@ for (let i = 0; i + 1 < save.edits.length; i += 2) {
   edits.set(save.edits[i], save.edits[i + 1]);
 }
 
+// ---------- Cahaya dari Pink Glow Block ----------
+// Setiap sel udara simpan tahap cahaya 0..LIGHT_MAX; cahaya merebak melalui udara dan kaca.
+const LIGHT_MAX = 12;
+const lightmap = new Uint8Array(W * D * H);
+const lightAt = (x, y, z) => (inBounds(x, y, z) ? lightmap[idx(x, y, z)] : 0);
+// Kira semula semua cahaya; pulangkan set chunk yang ada sel bercahaya
+function computeLight() {
+  lightmap.fill(0);
+  const touched = new Set();
+  const WD = W * D, cmaxX = W / CHUNK - 1, cmaxZ = D / CHUNK - 1;
+  let queue = [];
+  for (let i = 0; i < world.length; i++) if (world[i] === GLOW) { lightmap[i] = LIGHT_MAX; queue.push(i); }
+  while (queue.length) {
+    const next = [];
+    const spread = (j, level) => {
+      if (lightmap[j] >= level) return;
+      const id = world[j];
+      if (id !== AIR && !BLOCKS[id].transparent) return;
+      lightmap[j] = level;
+      next.push(j);
+    };
+    for (const i of queue) {
+      const x = i % W, z = Math.floor(i / W) % D, y = Math.floor(i / WD);
+      // Muka block di chunk jiran pun perlu dibina semula
+      for (let cx = Math.max(0, (x - 1) >> 4); cx <= Math.min(cmaxX, (x + 1) >> 4); cx++)
+        for (let cz = Math.max(0, (z - 1) >> 4); cz <= Math.min(cmaxZ, (z + 1) >> 4); cz++)
+          touched.add(cx + cz * 1000);
+      const level = lightmap[i] - 1;
+      if (level <= 0) continue;
+      if (x > 0) spread(i - 1, level);
+      if (x < W - 1) spread(i + 1, level);
+      if (z > 0) spread(i - W, level);
+      if (z < D - 1) spread(i + W, level);
+      if (y > 0) spread(i - WD, level);
+      if (y < H - 1) spread(i + WD, level);
+    }
+    queue = next;
+  }
+  return touched;
+}
+let litChunks = computeLight();
+function relight() {
+  const before = litChunks;
+  litChunks = computeLight();
+  for (const key of before) dirtyChunks.add(key);
+  for (const key of litChunks) dirtyChunks.add(key);
+}
+const nearLight = (x, y, z) => lightAt(x, y, z) > 0 || lightAt(x - 1, y, z) > 0 || lightAt(x + 1, y, z) > 0 ||
+  lightAt(x, y - 1, z) > 0 || lightAt(x, y + 1, z) > 0 || lightAt(x, y, z - 1) > 0 || lightAt(x, y, z + 1) > 0;
+
 // ---------- Paparan ----------
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
@@ -283,6 +342,15 @@ atlas.generateMipmaps = false;
 atlas.colorSpace = THREE.SRGBColorSpace;
 const opaqueMat = new THREE.MeshBasicMaterial({ map: atlas, vertexColors: true });
 const glassMat = new THREE.MeshBasicMaterial({ map: atlas, vertexColors: true, transparent: true, depthWrite: false });
+// Kecerahan block = yang lebih terang antara cahaya siang (uDay) dan cahaya Glow Block (aGlow)
+const dayUniform = { value: 1 };
+for (const mat of [opaqueMat, glassMat]) {
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uDay = dayUniform;
+    shader.vertexShader = 'attribute float aGlow;\nuniform float uDay;\n' +
+      shader.vertexShader.replace('#include <color_vertex>', '#include <color_vertex>\n\tvColor.rgb *= max(uDay, aGlow);');
+  };
+}
 
 // ---------- Bina mesh chunk ----------
 const FACES = [
@@ -301,6 +369,7 @@ function toGeometry(d) {
   g.setAttribute('position', new THREE.Float32BufferAttribute(d.pos, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(d.uv, 2));
   g.setAttribute('color', new THREE.Float32BufferAttribute(d.col, 3));
+  g.setAttribute('aGlow', new THREE.Float32BufferAttribute(d.glow, 1));
   g.setIndex(d.index);
   g.computeBoundingSphere();
   return g;
@@ -317,8 +386,8 @@ function buildChunk(cx, cz) {
     for (const m of old) { scene.remove(m); m.geometry.dispose(); }
   }
   const data = [
-    { pos: [], uv: [], col: [], index: [] },
-    { pos: [], uv: [], col: [], index: [] },
+    { pos: [], uv: [], col: [], glow: [], index: [] },
+    { pos: [], uv: [], col: [], glow: [], index: [] },
   ];
   const x0 = cx * CHUNK, z0 = cz * CHUNK;
   for (let y = 0; y < H; y++) {
@@ -330,10 +399,12 @@ function buildChunk(cx, cz) {
         const out = data[def.transparent ? 1 : 0];
         for (const f of FACES) {
           const nx = x + f.dir[0], ny = y + f.dir[1], nz = z + f.dir[2];
+          let glow = def.glow ? 1 : 0;
           if (ny < H) {
             if (!inBounds(nx, ny, nz)) continue;
             const nb = world[idx(nx, ny, nz)];
             if (nb !== AIR && !(BLOCKS[nb].transparent && nb !== id)) continue;
+            if (!def.glow) glow = lightmap[idx(nx, ny, nz)] / LIGHT_MAX;
           }
           const tile = f.dir[1] > 0 ? def.tiles[0] : f.dir[1] < 0 ? def.tiles[1] : def.tiles[2];
           const tx = tile % 4, ty = tile >> 2;
@@ -345,6 +416,7 @@ function buildChunk(cx, cz) {
             const u = UV_INSET + uv[0] * (1 - 2 * UV_INSET), v = UV_INSET + uv[1] * (1 - 2 * UV_INSET);
             out.uv.push((tx + u) / 4, 1 - (ty + 1 - v) / 4);
             out.col.push(shade, shade, shade);
+            out.glow.push(glow);
           }
           out.index.push(n, n + 1, n + 2, n + 2, n + 1, n + 3);
         }
@@ -369,8 +441,10 @@ for (let cz = 0; cz < D / CHUNK; cz++) for (let cx = 0; cx < W / CHUNK; cx++) bu
 function setBlock(x, y, z, id) {
   if (!inBounds(x, y, z)) return;
   const i = idx(x, y, z);
+  const old = world[i];
   world[i] = id;
   edits.set(i, id);
+  if (id === GLOW || old === GLOW || nearLight(x, y, z)) relight();
   saveDirty = true;
   const cx = Math.floor(x / CHUNK), cz = Math.floor(z / CHUNK);
   dirtyChunks.add(chunkKey(cx, cz));
@@ -392,6 +466,45 @@ const clouds = [];
     scene.add(m);
     clouds.push(m);
   }
+}
+
+// ---------- Siang & malam ----------
+const DAY_LENGTH = 600; // saat untuk satu hari penuh
+let dayTime = Number.isFinite(save.time) ? save.time % DAY_LENGTH : DAY_LENGTH * 0.05;
+let daylight = 1, wasNight = false;
+const SKY_DAY = new THREE.Color(0xffd9ec), SKY_NIGHT = new THREE.Color(0x2b1a4a), SKY_DUSK = new THREE.Color(0xff9fb0);
+const skyColor = new THREE.Color();
+const sky = new THREE.Group();
+{
+  const sun = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0xfff3c4, fog: false }));
+  sun.position.set(180, 0, 0);
+  sun.scale.setScalar(26);
+  const moon = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0xf3e9ff, fog: false }));
+  moon.position.set(-180, 0, 0);
+  moon.scale.setScalar(18);
+  sky.add(sun, moon);
+  scene.add(sky);
+}
+function updateSky(dt) {
+  if (playing) dayTime = (dayTime + dt) % DAY_LENGTH;
+  const angle = (dayTime / DAY_LENGTH) * Math.PI * 2;
+  const sunH = Math.sin(angle);
+  const t = Math.max(0, Math.min(1, (sunH + 0.15) / 0.4)), smooth = t * t * (3 - 2 * t);
+  daylight = 0.22 + 0.78 * smooth;
+  dayUniform.value = daylight;
+  skyColor.copy(SKY_NIGHT).lerp(SKY_DAY, smooth).lerp(SKY_DUSK, Math.max(0, 1 - Math.abs(sunH) / 0.3) * 0.55);
+  scene.background.copy(skyColor);
+  scene.fog.color.copy(skyColor);
+  const mobLight = Math.max(0.4, daylight);
+  mobMat.color.setScalar(mobLight);
+  faceMat.color.setScalar(FRONT_SHADE * mobLight);
+  clouds[0].material.color.setScalar(Math.max(0.35, daylight));
+  sky.position.copy(camera.position);
+  sky.rotation.z = angle;
+
+  const night = daylight < 0.5;
+  if (night && !wasNight && playing && mode === 'survival') showToast('Malam tiba - Jeli Malam keluar! Pink Glow Block halau mereka');
+  wasNight = night;
 }
 
 // ---------- Fizik ----------
@@ -693,6 +806,111 @@ function updateHearts(dt) {
   }
 }
 
+// ---------- Jeli Malam (raksasa comel) ----------
+// Keluar waktu malam di tempat gelap, melompat ke arah pemain, takut cahaya Glow Block, hilang bila pagi.
+const jellyMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9 });
+const jellyFaceMat = (() => {
+  const c = document.createElement('canvas');
+  c.width = 10; c.height = 8;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#3a2460';
+  ctx.fillRect(2, 2, 2, 2); ctx.fillRect(6, 2, 2, 2);
+  ctx.fillRect(3, 6, 1, 1); ctx.fillRect(4, 7, 2, 1); ctx.fillRect(6, 6, 1, 1);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(2, 2, 1, 1); ctx.fillRect(6, 2, 1, 1);
+  ctx.fillStyle = '#ff9fd0';
+  ctx.fillRect(1, 5, 1, 1); ctx.fillRect(8, 5, 1, 1);
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return new THREE.MeshBasicMaterial({ map: t, transparent: true });
+})();
+const jellies = [];
+let jellySpawnTimer = 0;
+function spawnJelly(x, y, z) {
+  const group = new THREE.Group(), inner = new THREE.Group();
+  inner.scale.setScalar(1 / 14);
+  const body = makeBox(10, 8, 10, 0xb48cff);
+  body.material = jellyMat;
+  body.position.set(0, 4, 0);
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(10, 8), jellyFaceMat);
+  face.position.set(0, 4, 5.06);
+  inner.add(body, face);
+  group.add(inner);
+  const j = {
+    group, inner, x: x + 0.5, y, z: z + 0.5, vx: 0, vy: 0, vz: 0, hw: 0.33, h: 0.57, onGround: false,
+    yaw: 0, hp: 3, hopTimer: Math.random(), cool: 0,
+  };
+  group.userData.jelly = j;
+  group.position.set(j.x, j.y, j.z);
+  scene.add(group);
+  jellies.push(j);
+}
+function removeJelly(i, pop) {
+  const j = jellies[i];
+  if (pop) spawnHearts(j.x, j.y + 0.4, j.z);
+  scene.remove(j.group);
+  jellies.splice(i, 1);
+}
+function hitJelly(j) {
+  const dx = j.x - player.x, dz = j.z - player.z, d = Math.hypot(dx, dz) || 1;
+  j.hp--;
+  j.vx = (dx / d) * 5; j.vz = (dz / d) * 5; j.vy = 5;
+  j.hopTimer = 0.8;
+  beep(500, 0.08, 'square', 0.06);
+  if (j.hp > 0) return;
+  if (mode === 'survival') spawnDrop(Math.floor(j.x), Math.floor(j.y), Math.floor(j.z), JELLY);
+  beep(900, 0.12, 'sine', 0.07);
+  removeJelly(jellies.indexOf(j), true);
+}
+function updateJellies(dt) {
+  const active = playing && mode === 'survival' && !dead;
+  if (active && daylight < 0.5) {
+    jellySpawnTimer -= dt;
+    if (jellySpawnTimer <= 0 && jellies.length < 5) {
+      jellySpawnTimer = 4;
+      const a = Math.random() * Math.PI * 2, r = 12 + Math.random() * 10;
+      const x = Math.floor(player.x + Math.cos(a) * r), z = Math.floor(player.z + Math.sin(a) * r);
+      if (x >= 1 && x < W - 1 && z >= 1 && z < D - 1) {
+        const y = surfaceY(x, z);
+        if (y < H - 2 && lightAt(x, y, z) === 0) spawnJelly(x, y, z);
+      }
+    }
+  }
+  for (let i = jellies.length - 1; i >= 0; i--) {
+    const j = jellies[i];
+    const dx = player.x - j.x, dz = player.z - j.z, dist = Math.hypot(dx, dz) || 1;
+    if (daylight > 0.6 || dist > 50 || j.y < -20) { removeJelly(i, daylight > 0.6); continue; }
+    j.hopTimer -= dt;
+    j.cool -= dt;
+    if (j.onGround && j.hopTimer <= 0) {
+      j.hopTimer = 0.9 + Math.random() * 0.6;
+      const scared = lightAt(Math.floor(j.x), Math.floor(j.y), Math.floor(j.z)) >= 5;
+      j.yaw = active && dist < 16 ? Math.atan2(dx, dz) + (scared ? Math.PI : 0) : Math.random() * Math.PI * 2;
+      j.vx = Math.sin(j.yaw) * 2.6; j.vz = Math.cos(j.yaw) * 2.6; j.vy = 6.5;
+    }
+    moveEntity(j, dt);
+    if (j.onGround) j.vx = j.vz = 0;
+
+    // Tersentuh pemain: cubit sikit, kemudian melantun ke belakang
+    if (active && dist < 0.9 && Math.abs(player.y - j.y) < 1.3 && j.cool <= 0) {
+      j.cool = 1.5;
+      damage(1);
+      j.vx = (-dx / dist) * 4; j.vz = (-dz / dist) * 4; j.vy = 4;
+      j.hopTimer = 1;
+    }
+
+    j.group.position.set(j.x, j.y, j.z);
+    let diff = j.yaw - j.group.rotation.y;
+    diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+    j.group.rotation.y += diff * Math.min(1, dt * 10);
+    // Memanjang semasa melompat, leper semasa mendarat
+    const stretch = 1 + Math.max(-0.25, Math.min(0.3, j.vy * 0.03));
+    j.inner.scale.set(1 / 14 / Math.sqrt(stretch), stretch / 14, 1 / 14 / Math.sqrt(stretch));
+  }
+}
+
 // ---------- Tindakan: letak, pecah, usap ----------
 const raycaster = new THREE.Raycaster();
 raycaster.far = REACH;
@@ -704,14 +922,14 @@ function aim(sx, sy) {
   else ndc.set((sx / window.innerWidth) * 2 - 1, -(sy / window.innerHeight) * 2 + 1);
   raycaster.setFromCamera(ndc, camera);
   const hit = raycast(raycaster.ray.origin, raycaster.ray.direction, REACH);
-  const mobHits = raycaster.intersectObjects(mobs.map((m) => m.group), true);
-  let mob = null;
+  const mobHits = raycaster.intersectObjects(mobs.concat(jellies).map((m) => m.group), true);
+  let mob = null, jelly = null;
   if (mobHits.length && (!hit || mobHits[0].distance < hit.t)) {
     let o = mobHits[0].object;
-    while (o && !o.userData.mob) o = o.parent;
-    mob = o ? o.userData.mob : null;
+    while (o && !o.userData.mob && !o.userData.jelly) o = o.parent;
+    if (o) { mob = o.userData.mob || null; jelly = o.userData.jelly || null; }
   }
-  return { hit, mob };
+  return { hit, mob, jelly };
 }
 
 function pet(m) {
@@ -734,8 +952,9 @@ function breakBlock(hit) {
 }
 
 function doPlace(sx, sy) {
-  const { hit, mob } = aim(sx, sy);
+  const { hit, mob, jelly } = aim(sx, sy);
   if (mob) { pet(mob); return; }
+  if (jelly) { hitJelly(jelly); return; }
   if (ITEMS[heldId()] && ITEMS[heldId()].food) { eat(); return; }
   if (!hit) { showToast('Terlalu jauh - dekati block'); return; }
   const x = hit.x + hit.face[0], y = hit.y + hit.face[1], z = hit.z + hit.face[2];
@@ -944,7 +1163,7 @@ function updateMining(dt) {
   let res = null;
   if (holdPoint) res = aim(holdPoint.x, holdPoint.y);
   else if (playing && locked()) res = aim();
-  const hit = res && !res.mob ? res.hit : null;
+  const hit = res && !res.mob && !res.jelly ? res.hit : null;
   const active = playing && (holdPoint || (mouseMining && locked()));
   if (!active || !hit || hit.id === BEDROCK) { resetMining(); return hit; }
 
@@ -1438,8 +1657,8 @@ canvas.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   if (locked()) {
     if (e.button === 0) {
-      const { mob } = aim();
-      if (mob) pet(mob); else mouseMining = true;
+      const { mob, jelly } = aim();
+      if (mob) pet(mob); else if (jelly) hitJelly(jelly); else mouseMining = true;
     } else if (e.button === 2) doPlace();
     return;
   }
@@ -1449,8 +1668,9 @@ canvas.addEventListener('pointerdown', (e) => {
   p.holdTimer = setTimeout(() => {
     if (p.dist >= HOLD_PX) return;
     p.holding = true;
-    const { hit, mob } = aim(p.x, p.y);
+    const { hit, mob, jelly } = aim(p.x, p.y);
     if (mob) { pet(mob); return; }
+    if (jelly) { hitJelly(jelly); return; }
     if (!hit) { showToast('Terlalu jauh - dekati block'); return; }
     holdPoint = p;
   }, HOLD_MS);
@@ -1468,33 +1688,43 @@ canvas.addEventListener('pointerup', (e) => endPointer(e, true));
 canvas.addEventListener('pointercancel', (e) => endPointer(e, false));
 window.addEventListener('mouseup', () => { mouseMining = false; });
 
-// Kayu bedik
-const joyEl = document.getElementById('joy'), knobEl = document.getElementById('knob');
-let joyId = null;
+// Kayu bedik terapung: sentuh di mana-mana dalam zon kiri bawah dan tapaknya ikut ibu jari
+const joyZone = document.getElementById('joyZone'), joyEl = document.getElementById('joy'), knobEl = document.getElementById('knob');
+const JOY_R = 50, JOY_HALF = 62, JOY_DEAD = 0.12, JOY_FULL = 0.75;
+let joyId = null, joyCx = 0, joyCy = 0;
 function updateJoy(e) {
-  const r = joyEl.getBoundingClientRect();
-  let dx = (e.clientX - (r.left + r.width / 2)) / (r.width / 2);
-  let dy = (e.clientY - (r.top + r.height / 2)) / (r.height / 2);
+  let dx = (e.clientX - joyCx) / JOY_R, dy = (e.clientY - joyCy) / JOY_R;
   const len = Math.hypot(dx, dy);
   if (len > 1) { dx /= len; dy /= len; }
-  joy.x = dx; joy.y = dy;
-  knobEl.style.transform = `translate(${dx * r.width * 0.3}px, ${dy * r.height * 0.3}px)`;
+  knobEl.style.transform = `translate(${dx * JOY_R}px, ${dy * JOY_R}px)`;
+  // Zon mati kecil di tengah; laju penuh sebelum ibu jari sampai ke tepi
+  const mag = Math.min(1, len);
+  const out = mag < JOY_DEAD ? 0 : Math.min(1, (mag - JOY_DEAD) / (JOY_FULL - JOY_DEAD));
+  joy.x = mag ? (dx / mag) * out : 0;
+  joy.y = mag ? (dy / mag) * out : 0;
 }
 function resetJoy(e) {
   if (e.pointerId !== joyId) return;
   joyId = null;
   joy.x = joy.y = 0;
   knobEl.style.transform = '';
+  joyEl.style.left = joyEl.style.top = joyEl.style.bottom = '';
 }
-joyEl.addEventListener('pointerdown', (e) => {
+joyZone.addEventListener('pointerdown', (e) => {
   e.preventDefault();
+  if (joyId !== null) return;
   joyId = e.pointerId;
-  try { joyEl.setPointerCapture(e.pointerId); } catch (err) { /* penunjuk sudah tamat */ }
+  try { joyZone.setPointerCapture(e.pointerId); } catch (err) { /* penunjuk sudah tamat */ }
+  joyCx = Math.max(JOY_HALF, e.clientX);
+  joyCy = Math.min(window.innerHeight - JOY_HALF, e.clientY);
+  joyEl.style.left = joyCx - JOY_HALF + 'px';
+  joyEl.style.top = joyCy - JOY_HALF + 'px';
+  joyEl.style.bottom = 'auto';
   updateJoy(e);
 });
-joyEl.addEventListener('pointermove', (e) => { if (e.pointerId === joyId) updateJoy(e); });
-joyEl.addEventListener('pointerup', resetJoy);
-joyEl.addEventListener('pointercancel', resetJoy);
+joyZone.addEventListener('pointermove', (e) => { if (e.pointerId === joyId) updateJoy(e); });
+joyZone.addEventListener('pointerup', resetJoy);
+joyZone.addEventListener('pointercancel', resetJoy);
 
 const jumpEl = document.getElementById('jump');
 jumpEl.addEventListener('pointerdown', (e) => { e.preventDefault(); jumpHeld = true; });
@@ -1514,6 +1744,7 @@ function frame(now) {
 
   if (playing && !bagOpen && !dead) updatePlayer(dt);
   for (const m of mobs) updateMob(m, dt, time);
+  updateJellies(dt);
   updateHearts(dt);
   updateParticles(dt);
   updateDrops(dt, time);
@@ -1530,6 +1761,7 @@ function frame(now) {
   camera.position.set(player.x, player.y + EYE, player.z);
   camera.rotation.set(pitch, yaw, 0);
   camera.updateMatrixWorld();
+  updateSky(dt);
 
   const target = updateMining(dt);
   highlight.visible = !!target;
@@ -1544,4 +1776,7 @@ requestAnimationFrame(frame);
 window.__pink = { player, mobs, world, getBlock, setBlock, doPlace, mining, inv, drops, addItem, heldId, RECIPES, craft, ITEMS, renderHotbar, damage, renderStats,
   get health() { return health; }, set health(v) { health = v; },
   get hunger() { return hunger; }, set hunger(v) { hunger = v; },
-  get dead() { return dead; }, get mode() { return mode; }, surfaceY, startPlaying, selectSlot, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, get pitch() { return pitch; }, set pitch(v) { pitch = v; } };
+  get dead() { return dead; }, jellies, lightAt,
+  get dayTime() { return dayTime; }, set dayTime(v) { dayTime = v; }, get daylight() { return daylight; },
+  // Gambar dunia 3D sahaja (tanpa butang), untuk semakan rupa
+  shot: () => { renderer.render(scene, camera); return canvas.toDataURL('image/jpeg', 0.7); }, get mode() { return mode; }, surfaceY, startPlaying, selectSlot, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, get pitch() { return pitch; }, set pitch(v) { pitch = v; } };
