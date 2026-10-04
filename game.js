@@ -3319,7 +3319,7 @@ function removeDrop(i) {
   scene.remove(drops[i].mesh);
   drops.splice(i, 1);
 }
-function spawnDrop(x, y, z, id) {
+function spawnDrop(x, y, z, id, item = null) {
   if (drops.length >= 150) removeDrop(0);
   let mesh;
   if (ITEMS[id]) {
@@ -3330,21 +3330,29 @@ function spawnDrop(x, y, z, id) {
   }
   scene.add(mesh);
   drops.push({
-    mesh, id, x: x + 0.5, y: y + 0.4, z: z + 0.5,
+    mesh, id, count:item?.count || 1, dur:item?.dur, pickupDelay:item ? 2 : 0.4, x: x + 0.5, y: y + 0.4, z: z + 0.5,
     vx: (Math.random() - 0.5) * 2, vy: 3, vz: (Math.random() - 0.5) * 2,
     hw: 0.125, h: 0.25, onGround: false, floats: true, age: 0, spin: Math.random() * 6,
   });
 }
+let pickupNotice=0;
 function updateDrops(dt, time) {
   for (let i = drops.length - 1; i >= 0; i--) {
     const d = drops[i];
     d.age += dt;
     const dx = player.x - d.x, dy = player.y + 0.9 - d.y, dz = player.z - d.z;
     const dist = Math.hypot(dx, dy, dz);
-    if (d.age > 0.4 && dist < 2.2 && hasRoom(d.id)) {
+    if (d.age > (d.pickupDelay || 0.4) && dist < 2.2 && !hasRoom(d.id) && time > pickupNotice) {
+      pickupNotice=time+4;showToast('Beg penuh — simpan dalam peti atau jatuhkan satu timbunan.');
+    }
+    if (d.age > (d.pickupDelay || 0.4) && dist < 2.2 && hasRoom(d.id)) {
       // Dekat pemain: item terbang masuk ke inventori
       if (dist < 0.7) {
-        addItem(d.id);
+        const stack=[{...newItem(d.id),count:d.count||1,...(d.dur?{dur:d.dur}:{})}];
+        transferStack(stack,0,inv,maxStack);
+        saveDirty=true;renderHotbar();
+        if(d.id===KRISTAL)award('kristal');if(d.id===PERMATA)award('permata');
+        if(stack[0]){d.count=stack[0].count;continue;}
         beep(900 + Math.random() * 200, 0.06, 'sine', 0.05);
         removeDrop(i);
         continue;
@@ -3515,7 +3523,7 @@ function fillInventory() {
   }
   saveDirty=true;
 }
-if (save.inventoryV !== 2) fillInventory();
+// Isi Penuh kekal pilihan pengguna; jangan penuhkan slot kosong secara automatik.
 const storage = Object.create(null);
 if (save.storage && typeof save.storage === 'object') for (const [key, list] of Object.entries(save.storage)) {
   if (world[Number(key)] !== STORAGE || !Array.isArray(list)) continue;
@@ -3696,13 +3704,13 @@ function renderStorage() {
   panel.hidden = activeStorage === null;
   document.getElementById('recipes').parentElement.hidden = activeStorage !== null;
   document.getElementById('bagHint').textContent = activeStorage === null
-    ? '36 slot. Baris atas ialah hotbar. Ketik barang kemudian slot lain untuk pindah. Pilih katalog untuk mengganti isi slot.'
+    ? 'Pilih barang → Pegang untuk guna. Baris atas ialah hotbar. Kutipan tanah perlu slot kosong. Simpan dalam peti atau gunakan Jatuhkan untuk kosongkan slot.'
     : 'Ketik barang dalam beg untuk simpan; ketik barang dalam peti untuk ambil. Satu timbunan dipindahkan.';
   if (activeStorage !== null) document.getElementById('storageGrid').replaceChildren(...storage[activeStorage].map((it, i) => makeSlot(it, () => moveStorage(storage[activeStorage], i, inv))));
 }
 function renderCatalog() {
   const panel=document.getElementById('catalogSection');panel.hidden=activeStorage!==null;
-  document.getElementById('catalogHint').textContent=catalogPick===null ? 'Pilih item, kemudian ketik slot beg untuk mengisi atau mengganti slot itu. Block: 64, alat: 1 dengan ketahanan penuh.' : 'Dipilih: '+info(catalogPick).name+'. Ketik slot beg yang mahu diganti.';
+  document.getElementById('catalogHint').textContent=catalogPick===null ? 'Pilih item → pilih slot beg → tekan Pegang. Isi lama slot yang dipilih akan diganti. Blok: 64; alat: 1.' : 'Dipilih: '+info(catalogPick).name+'. Ketik slot beg yang mahu diganti.';
   document.getElementById('catalogCancel').hidden=catalogPick===null;
   const query=document.getElementById('catalogSearch').value.trim().toLocaleLowerCase('ms-MY');
   document.getElementById('catalogGrid').replaceChildren(...CATALOG.filter(id=>info(id).name.toLocaleLowerCase('ms-MY').includes(query)).map(id=>{
@@ -3720,11 +3728,16 @@ function renderBag() {
   renderRecipes();
   renderStorage();
   renderCatalog();
+  const chosen=bagPick>=0?inv[bagPick]:null;
+  document.getElementById('bagActions').hidden=activeStorage!==null;
+  document.getElementById('equipItem').disabled=!chosen;
+  document.getElementById('dropItem').disabled=!chosen;
+  document.getElementById('chosenItem').textContent=chosen ? 'Dipilih: '+info(chosen.id).name+' ×'+chosen.count : 'Ketik barang dalam beg untuk memilih.';
 }
 function tapBag(i) {
   if (catalogPick !== null && activeStorage === null) {
     const id=catalogPick; inv[i]=isTool(id)?{id,count:1,dur:ITEMS[id].uses}:{id,count:STACK};
-    catalogPick=null;bagPick=-1;saveDirty=true;renderHotbar();writeSave();return;
+    catalogPick=null;bagPick=i;saveDirty=true;renderHotbar();writeSave();return;
   }
   if (activeStorage !== null) { moveStorage(inv, i, storage[activeStorage]); return; }
   if (bagPick < 0) {
@@ -3777,6 +3790,20 @@ function applyMode() {
   renderHotbar();
 }
 bagBtn.addEventListener('click', () => { if (playing && !dead) setBag(!bagOpen); });
+document.getElementById('equipItem').onclick=()=>{
+  if(bagPick<0||!inv[bagPick])return;
+  const i=bagPick;
+  if(i<HOT_SIZE)selected=i;else [inv[selected],inv[i]]=[inv[i],inv[selected]];
+  saveDirty=true;renderHotbar();setBag(false);if(!playing)startPlaying();writeSave();
+  showToast('Pegang: '+info(heldId()).name);
+};
+document.getElementById('dropItem').onclick=()=>{
+  if(bagPick<0||!inv[bagPick])return;
+  const item={...inv[bagPick]};
+  spawnDrop(player.x-.5,player.y+.5,player.z-.5,item.id,item);
+  inv[bagPick]=null;bagPick=-1;saveDirty=true;renderHotbar();writeSave();
+  document.getElementById('chosenItem').textContent='Barang dijatuhkan di kaki. Tutup beg dan dekati untuk kutip semula.';
+};
 document.getElementById('catalogSearch').addEventListener('input', renderCatalog);
 document.getElementById('catalogCancel').onclick=()=>{catalogPick=null;renderBag();};
 document.getElementById('fillBag').onclick=()=>{fillInventory();catalogPick=null;renderHotbar();writeSave();};
