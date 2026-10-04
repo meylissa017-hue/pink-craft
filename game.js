@@ -209,7 +209,7 @@ function writeSave() {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
       seed: save.seed, edits: flat,
       player: [player.x, player.y, player.z, yaw, pitch], slot: selected,
-      mode, health, hunger, time: Math.round(dayTime), inv: inv.map((it) => (it ? (it.dur ? [it.id, it.count, it.dur] : [it.id, it.count]) : 0)),
+      mode, controls: consoleMode ? 'console' : 'touch', health, hunger, time: Math.round(dayTime), inv: inv.map((it) => (it ? (it.dur ? [it.id, it.count, it.dur] : [it.id, it.count]) : 0)),
     }));
   } catch (e) { /* storan penuh atau disekat: game tetap jalan tanpa simpan */ }
 }
@@ -1139,6 +1139,7 @@ function updateDrops(dt, time) {
 const mining = { key: -1, progress: 0, tick: 0 };
 let holdPoint = null;      // jari yang sedang menahan (sentuh)
 let mouseMining = false;   // butang kiri ditahan (tetikus terkunci)
+let padMining = false;     // butang B ditahan (butang konsol)
 function resetMining() {
   mining.key = -1;
   mining.progress = 0;
@@ -1162,9 +1163,9 @@ function wearTool() {
 function updateMining(dt) {
   let res = null;
   if (holdPoint) res = aim(holdPoint.x, holdPoint.y);
-  else if (playing && locked()) res = aim();
+  else if (playing && (locked() || consoleMode)) res = aim();
   const hit = res && !res.mob && !res.jelly ? res.hit : null;
-  const active = playing && (holdPoint || (mouseMining && locked()));
+  const active = playing && (holdPoint || (mouseMining && locked()) || padMining);
   if (!active || !hit || hit.id === BEDROCK) { resetMining(); return hit; }
 
   const key = idx(hit.x, hit.y, hit.z);
@@ -1410,6 +1411,7 @@ function setBag(open) {
   jumpHeld = false;
   holdPoint = null;
   mouseMining = false;
+  padMining = false;
   for (const k in keys) keys[k] = false;
   if (open) {
     renderBag();
@@ -1489,6 +1491,7 @@ function die() {
   jumpHeld = false;
   holdPoint = null;
   mouseMining = false;
+  padMining = false;
   deathEl.classList.remove('hidden');
   if (locked()) document.exitPointerLock();
 }
@@ -1562,9 +1565,27 @@ const playBtn = document.getElementById('play');
 const newWorldBtn = document.getElementById('newWorld');
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 if (isTouch) document.body.classList.add('touch');
-document.getElementById('tips').innerHTML = isTouch
-  ? 'Kayu bedik kiri: jalan &bull; Seret skrin: pandang<br>Ketik: letak block &bull; Tekan &amp; tahan: pecah block<br>Ketik Pinky untuk usap'
-  : 'WASD: jalan &bull; Space: lompat &bull; Tetikus: pandang<br>Tahan klik kiri: pecah &bull; Klik kanan: letak<br>1-9 / roda tetikus: pilih block &bull; E: beg &bull; Esc: menu';
+// Kawalan sentuh: 'console' = butang A/B/X/Y dengan tanda + di tengah; 'touch' = ketik dan tahan pada skrin
+let consoleMode = isTouch && save.controls !== 'touch';
+function applyControls() {
+  document.body.classList.toggle('console', consoleMode);
+  document.getElementById('ctrlBtn').textContent = consoleMode
+    ? 'Kawalan: Butang konsol (tukar ke Ketik skrin)'
+    : 'Kawalan: Ketik skrin (tukar ke Butang konsol)';
+  document.getElementById('tips').innerHTML = !isTouch
+    ? 'WASD: jalan &bull; Space: lompat &bull; Tetikus: pandang<br>Tahan klik kiri: pecah &bull; Klik kanan: letak<br>1-9 / roda tetikus: pilih block &bull; E: beg &bull; Esc: menu'
+    : consoleMode
+      ? 'Kayu bedik kiri: jalan &bull; Seret skrin: pandang<br><b>A</b> lompat &bull; <b>B</b> tahan untuk pecah &bull; <b>X</b> letak / makan / usap &bull; <b>Y</b> beg<br>Halakan tanda + ke block'
+      : 'Kayu bedik kiri: jalan &bull; Seret skrin: pandang<br>Ketik: letak block &bull; Tekan &amp; tahan: pecah block<br>Ketik Pinky untuk usap';
+}
+document.getElementById('ctrlBtn').addEventListener('click', () => {
+  consoleMode = !consoleMode;
+  holdPoint = null;
+  padMining = false;
+  saveDirty = true;
+  applyControls();
+});
+applyControls();
 
 const locked = () => document.pointerLockElement === canvas;
 
@@ -1591,6 +1612,7 @@ function pause() {
   jumpHeld = false;
   holdPoint = null;
   mouseMining = false;
+  padMining = false;
   for (const k in keys) keys[k] = false;
   playBtn.textContent = 'Sambung';
   newWorldBtn.textContent = 'Dunia Baru';
@@ -1649,7 +1671,7 @@ function endPointer(e, tap) {
   if (!p) return;
   clearTimeout(p.holdTimer);
   if (holdPoint === p) holdPoint = null;
-  if (tap && !p.holding && p.dist < TAP_PX && performance.now() - p.t0 < TAP_MS) doPlace(p.x, p.y);
+  if (tap && !consoleMode && !p.holding && p.dist < TAP_PX && performance.now() - p.t0 < TAP_MS) doPlace(p.x, p.y);
   pointers.delete(e.pointerId);
 }
 canvas.addEventListener('pointerdown', (e) => {
@@ -1665,7 +1687,7 @@ canvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse' && e.button === 2) { doPlace(e.clientX, e.clientY); return; }
   try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* penunjuk sudah tamat */ }
   const p = { x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, dist: 0, holding: false, t0: performance.now(), holdTimer: 0 };
-  p.holdTimer = setTimeout(() => {
+  if (!consoleMode) p.holdTimer = setTimeout(() => {
     if (p.dist >= HOLD_PX) return;
     p.holding = true;
     const { hit, mob, jelly } = aim(p.x, p.y);
@@ -1726,9 +1748,35 @@ joyZone.addEventListener('pointermove', (e) => { if (e.pointerId === joyId) upda
 joyZone.addEventListener('pointerup', resetJoy);
 joyZone.addEventListener('pointercancel', resetJoy);
 
-const jumpEl = document.getElementById('jump');
-jumpEl.addEventListener('pointerdown', (e) => { e.preventDefault(); jumpHeld = true; });
-for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) jumpEl.addEventListener(ev, () => { jumpHeld = false; });
+// Butang konsol: A lompat, B tahan untuk pecah, X letak / guna (tahan = ulang), Y beg.
+// Semua tindakan menyasar tanda + di tengah skrin.
+function padButton(id, onDown, onUp) {
+  const el = document.getElementById(id);
+  el.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    el.classList.add('down');
+    try { el.setPointerCapture(e.pointerId); } catch (err) { /* penunjuk sudah tamat */ }
+    if (playing && !dead) onDown();
+  });
+  for (const ev of ['pointerup', 'pointercancel']) {
+    el.addEventListener(ev, () => {
+      el.classList.remove('down');
+      if (onUp) onUp();
+    });
+  }
+}
+let placeRepeat = 0;
+padButton('jump', () => { jumpHeld = true; }, () => { jumpHeld = false; });
+padButton('padB', () => {
+  const { mob, jelly } = aim();
+  if (mob) pet(mob); else if (jelly) hitJelly(jelly); else padMining = true;
+}, () => { padMining = false; });
+padButton('padX', () => {
+  doPlace();
+  clearInterval(placeRepeat);
+  placeRepeat = setInterval(() => { if (playing && !dead && !bagOpen) doPlace(); }, 280);
+}, () => clearInterval(placeRepeat));
+padButton('padY', () => { if (mode === 'survival') setBag(!bagOpen); });
 
 // ---------- Simpan berkala ----------
 setInterval(writeSave, 3000);
@@ -1776,7 +1824,7 @@ requestAnimationFrame(frame);
 window.__pink = { player, mobs, world, getBlock, setBlock, doPlace, mining, inv, drops, addItem, heldId, RECIPES, craft, ITEMS, renderHotbar, damage, renderStats,
   get health() { return health; }, set health(v) { health = v; },
   get hunger() { return hunger; }, set hunger(v) { hunger = v; },
-  get dead() { return dead; }, jellies, lightAt,
+  get dead() { return dead; }, jellies, lightAt, get consoleMode() { return consoleMode; },
   get dayTime() { return dayTime; }, set dayTime(v) { dayTime = v; }, get daylight() { return daylight; },
   // Gambar dunia 3D sahaja (tanpa butang), untuk semakan rupa
   shot: () => { renderer.render(scene, camera); return canvas.toDataURL('image/jpeg', 0.7); }, get mode() { return mode; }, surfaceY, startPlaying, selectSlot, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, get pitch() { return pitch; }, set pitch(v) { pitch = v; } };
