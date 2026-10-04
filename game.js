@@ -3386,48 +3386,40 @@ function wearTool() {
   saveDirty = true;
   renderHotbar();
 }
-// Berapa kali hit untuk pecahkan block: block keras 2 kali dengan tangan, 1 kali dengan alat yang betul
-function hitsNeeded(id) {
-  if (mode === 'creative') return 1;
-  const def = BLOCKS[id], tool = ITEMS[heldId()];
-  if (def.hard < 1) return 1;
-  return tool && tool.tool && tool.tool === def.tool ? 1 : 2;
+// Saat melombong: nilai asas untuk blok biasa; blok fantasi menggunakan tetapan hard sendiri.
+function miningSeconds(id) {
+  const def=BLOCKS[id], tool=ITEMS[heldId()];
+  if(!Number.isFinite(def.hard))return Infinity;
+  if(mode==='creative')return 0;
+  const correct=tool?.tool && tool.tool===def.tool;
+  const hand={ [DIRT]:0.75,[SAND]:0.75,[SAND_X]:0.75,[GRASS]:0.9,[GRASS_G]:0.9,[FIELD]:0.9,[LOG]:3,[PLANKS]:3,[STONE]:7.5,[BRICK]:10 };
+  const base={ [STONE]:2.25,[BRICK]:3 };
+  const seconds=correct ? (base[id] ?? hand[id] ?? def.hard)/tool.speed : (hand[id] ?? def.hard);
+  return Math.max(0.05,Math.ceil((seconds-1e-9)*20)/20);
 }
-const HIT_INTERVAL = 0.28; // saat antara hit bila butang ditahan
-let pendingStrike = false; // satu tekan pantas tetap dikira walaupun dilepas sebelum bingkai seterusnya
-// Setiap tekan = satu hit. Pulangkan block yang sedang disasar (untuk kotak sasaran).
+let pendingStrike = false; // Menjamin ketikan Kreatif yang singkat masih diproses.
 function updateMining(dt) {
-  let res = null;
-  if (holdPoint) res = aim(holdPoint.x, holdPoint.y);
-  else if (playing && (locked() || consoleMode)) res = aim();
-  const hit = res && !res.mob && !res.jelly && !res.ball && !res.villager && !res.seat ? res.hit : null;
-  const held = holdPoint || (mouseMining && locked()) || padMining;
-  const active = playing && (held || pendingStrike);
-  const key = hit && hit.id !== BEDROCK ? idx(hit.x, hit.y, hit.z) : -1;
-  const strikeNow = pendingStrike;
-  pendingStrike = false;
-  mining.tick -= dt;
-  if (!active || key < 0) {
-    // Retak kekal sekejap selepas dilepas, supaya hit kedua pada block yang sama dikira
-    mining.idle += dt;
-    if (key !== mining.key || mining.idle > 1.5) resetMining();
-    return hit;
+  let res=null;
+  if(holdPoint)res=aim(holdPoint.x,holdPoint.y);
+  else if(playing && (locked()||consoleMode))res=aim();
+  const hit=res && !res.mob && !res.jelly && !res.ball && !res.villager && !res.seat ? res.hit:null;
+  const held=holdPoint||(mouseMining&&locked())||padMining;
+  const strikeNow=pendingStrike;pendingStrike=false;
+  mining.tick=Math.max(0,mining.tick-dt);
+  const active=playing&&!bagOpen&&!dead&&(held||(mode==='creative'&&strikeNow));
+  const key=hit && Number.isFinite(BLOCKS[hit.id].hard) ? idx(hit.x,hit.y,hit.z):-1;
+  if(!active||key<0){resetMining();return hit;}
+  const tool=heldId();
+  if(key!==mining.key||tool!==mining.tool||mode!==mining.mode){mining.key=key;mining.tool=tool;mining.mode=mode;mining.progress=0;}
+  if(mode==='creative'){
+    if(mining.tick>0&&!strikeNow)return hit;
+    breakBlock(hit);resetMining();mining.tick=0.2;return null;
   }
-  mining.idle = 0;
-  if (key !== mining.key) { mining.key = key; mining.progress = 0; }
-  if (!strikeNow && mining.tick > 0) return hit;
-  mining.tick = HIT_INTERVAL;
-  mining.progress += 1 / hitsNeeded(hit.id);
-  if (mining.progress >= 0.999) {
-    breakBlock(hit);
-    wearTool();
-    resetMining();
-    return null;
-  }
-  beep(150, 0.06, 'square', 0.05);
-  crack.material.map = crackTextures[Math.min(7, Math.floor(mining.progress * 8))];
-  crack.position.set(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5);
-  crack.visible = true;
+  mining.progress+=dt/miningSeconds(hit.id);
+  if(mining.progress>=1-1e-9){breakBlock(hit);wearTool();resetMining();return null;}
+  if(mining.tick<=0){beep(150,0.06,'square',0.05);mining.tick=0.28;}
+  crack.material.map=crackTextures[Math.min(7,Math.floor(mining.progress*8))];
+  crack.position.set(hit.x+0.5,hit.y+0.5,hit.z+0.5);crack.visible=true;
   return hit;
 }
 

@@ -1,0 +1,10 @@
+const {test}=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs'),path=require('node:path');
+const source=fs.readFileSync(path.join(__dirname,'../game.js'),'utf8');
+const code=source.slice(source.indexOf('function miningSeconds('),source.indexOf('\nfunction syncFlight('));
+function setup(mode='survival'){
+ const c={mode,heldId:()=>0,ITEMS:{100:{tool:'axe',speed:2},101:{tool:'pick',speed:2}},BLOCKS:{2:{hard:.6,tool:'shovel'},3:{hard:2,tool:'pick'},4:{hard:1.5,tool:'axe'},12:{hard:Infinity}},DIRT:2,SAND:13,SAND_X:29,GRASS:1,GRASS_G:50,FIELD:15,LOG:4,PLANKS:7,STONE:3,BRICK:6,playing:true,bagOpen:false,dead:false,holdPoint:null,mouseMining:false,padMining:true,locked:()=>false,consoleMode:true,idx:()=>1,mining:{key:-1,progress:0,tick:0},crack:{material:{},position:{set(){}},visible:false},crackTextures:Array(8).fill(0),beep(){},broken:0,worn:0};
+ c.aim=()=>({hit:{id:4,x:1,y:1,z:1}});c.breakBlock=()=>c.broken++;c.wearTool=()=>c.worn++;c.resetMining=()=>{c.mining.key=-1;c.mining.progress=0;c.crack.visible=false;};vm.createContext(c);vm.runInContext(code,c);return c;
+}
+test('log needs 3 seconds by hand; axe halves time',()=>{const c=setup();for(let i=0;i<59;i++)c.updateMining(.05);assert.equal(c.broken,0);c.updateMining(.05);assert.equal(c.broken,1);assert.equal(c.worn,1);c.heldId=()=>100;assert.equal(c.miningSeconds(4),1.5);c.heldId=()=>101;assert.equal(c.miningSeconds(3),1.15);});
+test('release and bag opening reset progress; taps do not accumulate',()=>{const c=setup();c.updateMining(.05);c.padMining=false;c.updateMining(.05);assert.equal(c.mining.progress,0);vm.runInContext('pendingStrike=true',c);c.updateMining(.05);assert.equal(c.mining.progress,0);c.padMining=true;c.bagOpen=true;c.updateMining(.05);assert.equal(c.broken,0);});
+test('creative tap breaks once; bedrock remains unbreakable',()=>{const c=setup('creative');c.padMining=false;vm.runInContext('pendingStrike=true',c);c.updateMining(.016);assert.equal(c.broken,1);c.aim=()=>({hit:{id:12,x:1,y:1,z:1}});vm.runInContext('pendingStrike=true',c);c.updateMining(.016);assert.equal(c.broken,1);});
