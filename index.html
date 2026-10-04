@@ -131,6 +131,11 @@
   .card .swatch.on { box-shadow: 0 0 0 3px #5a2a44; }
   .card .hat { width: auto; margin: 0; padding: 8px 12px; font-size: 14px; background: #ffe3f1; color: #c2307a; }
   .card .hat.on { background: #ff4fa3; color: #fff; }
+  #gameHud { position: fixed; z-index: 3; left: 50%; transform: translateX(-50%); top: calc(52px + env(safe-area-inset-top)); padding: 5px 14px; border-radius: 999px; background: rgba(255, 255, 255, .85); color: #c2307a; font: 800 15px system-ui, sans-serif; white-space: nowrap; pointer-events: none; }
+  #gameHud[hidden] { display: none; }
+  .panel .game { display: block; text-align: left; padding: 10px 14px; background: #ffe3f1; color: #c2307a; }
+  .panel .game small { display: block; font-weight: 500; font-size: 12px; color: #7a4a63; margin-top: 2px; }
+  #gameStop { background: #fff0c9; color: #8a5a00; font-size: 14px; }
   #sleep { position: fixed; z-index: 5; inset: 0; background: #1b1030; opacity: 0; transition: opacity .8s; pointer-events: none; }
   #install { background: #c2307a; color: #fff; }
   #install[hidden] { display: none; }
@@ -209,7 +214,8 @@
     <button id="upgradeBtn" hidden>Naik Taraf Dunia</button>
     <button id="modeBtn"></button>
     <button id="ctrlBtn"></button>
-    <div class="row"><button id="stickersBtn">Pelekat</button><button id="lookBtn">Rupa Saya</button><button id="musicBtn">Muzik</button></div>
+    <div class="row"><button id="gamesBtn">Permainan</button><button id="stickersBtn">Pelekat</button></div>
+    <div class="row"><button id="lookBtn">Rupa Saya</button><button id="musicBtn">Muzik</button></div>
     <button id="mpBtn">Main Bersama</button>
     <button id="newWorld">Dunia Baru</button>
   </div>
@@ -251,6 +257,17 @@
     <button id="lookClose" class="close">Tutup</button>
   </div>
 </div>
+<div id="games" class="panel hidden">
+  <div class="card">
+    <h2>Permainan</h2>
+    <button id="gameRace" class="game">Lumba Bintang<small>Kumpul 8 bintang ikut turutan secepat mungkin. <span id="raceBest"></span></small></button>
+    <button id="gameSeek" class="game">Cari Pinky<small>Lima Pinky bersembunyi dekat sini. Cari semua dalam 90 saat!</small></button>
+    <button id="gameMatch" class="game">Lawan Bola<small>Perlawanan 2 minit di padang bola. Seorang lawan komputer, atau dua pasukan dengan kawan.</small></button>
+    <button id="gameStop">Henti permainan sekarang</button>
+    <button id="gamesClose" class="close">Tutup</button>
+  </div>
+</div>
+<div id="gameHud" hidden></div>
 <div id="stickerPop" role="status"></div>
 <div id="sleep"></div>
 

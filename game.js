@@ -483,7 +483,7 @@ function writeSave() {
       seed: save.seed, gen: pendingUpgrade ? 2 : GEN, base: pendingUpgrade || UPGRADED ? 1 : 0, fix: pendingUpgrade ? 1 : 0, edits: flat,
       player: [player.x, player.y, player.z, yaw, pitch], slot: selected,
       houses: houseSites, housesV: houseVersion, parks: parkSites,
-      stickers: [...earned], stats, look: myLook, music: musicOn ? 1 : 0, gift: 2,
+      best, stickers: [...earned], stats, look: myLook, music: musicOn ? 1 : 0, gift: 2,
       petsC: critters.filter((c) => c.tame).map((c) => [c.kind, Math.round(c.x * 10) / 10, Math.round(c.y * 10) / 10, Math.round(c.z * 10) / 10]),
       pets: mobs.filter((m) => m.tame).map((m) => [Math.round(m.x * 10) / 10, Math.round(m.y * 10) / 10, Math.round(m.z * 10) / 10]),
       mode, controls: consoleMode ? 'console' : 'touch', health, hunger, time: Math.round(dayTime), inv: inv.map((it) => (it ? (it.dur ? [it.id, it.count, it.dur] : [it.id, it.count]) : 0)),
@@ -2384,12 +2384,13 @@ function updateBall(dt) {
   // Gol: bola melepasi garisan di antara dua tiang
   if (b.z > 46.25 && b.z < 50.75 && b.y < FIELD_ZONE.y + 3.5 && (b.x < 62 || b.x > 83)) {
     goals++;
+    if (mini && mini.kind === 'match') mini.score[b.x > 83 ? 0 : 1]++;
     stats.goals++;
     award('gol');
     if (stats.goals >= 5) award('gol5');
     netSend({ t: 'g', n: goals });
     for (let i = 0; i < 4; i++) spawnHearts(b.x, b.y + 0.5 + i * 0.4, b.z);
-    showToast('GOOOL! Jumlah gol: ' + goals);
+    showToast(mini && mini.kind === 'match' ? 'GOL untuk pasukan ' + (b.x > 83 ? 'Pink' : 'Biru') + '!' : 'GOOOL! Jumlah gol: ' + goals);
     [523, 659, 784, 1047].forEach((freq, i) => setTimeout(() => beep(freq, 0.16, 'square', 0.06), i * 110));
     resetBall();
   }
@@ -3055,6 +3056,9 @@ const STICKERS = [
   { id: 'kawan', icon: '\u{1F91D}', name: 'Main Bersama', hint: 'Main dengan kawan dalam satu bilik' },
   { id: 'kebun', icon: '\u{1F353}', name: 'Pekebun', hint: 'Tuai strawberi atau lobak yang masak' },
   { id: 'peliharaan', icon: '\u{1F431}', name: 'Kawan Baru', hint: 'Jinakkan arnab, ayam, kucing atau anjing' },
+  { id: 'lumba', icon: '\u2B50', name: 'Pelari Bintang', hint: 'Habiskan Lumba Bintang' },
+  { id: 'cari', icon: '\u{1F50D}', name: 'Mata Tajam', hint: 'Jumpa semua Pinky dalam Cari Pinky' },
+  { id: 'lawan', icon: '\u{1F947}', name: 'Juara Perlawanan', hint: 'Menang satu perlawanan Lawan Bola' },
 ];
 const FURNITURE = new Set([BED_HEAD, BED_FOOT, SOFA, TABLE, TV, KITCHEN, WARDROBE, SHELF, RUG, PAINT_PINKY, PAINT_RAINBOW, FLOWERS, FENCE]);
 const earned = new Set(Array.isArray(save.stickers) ? save.stickers.filter((id) => STICKERS.some((st) => st.id === id)) : []);
@@ -3313,6 +3317,260 @@ function growTick(dt) {
 }
 // Hadiah sekali: benih untuk mula berkebun
 if ((save.gift || 0) < 2 && !guest) for (const seed of [SEED_STRAW, SEED_CARROT, SEED_FLOWER]) for (let i = 0; i < 3; i++) addItem(seed);
+
+// ---------- Permainan mini ----------
+// Satu permainan pada satu masa: 'race' (Lumba Bintang), 'seek' (Cari Pinky), 'match' (Lawan Bola),
+// atau 'matchView' (tetamu melihat perlawanan yang dijalankan hos)
+let mini = null;
+const BOT_ID = 99; // id watak pemain komputer dalam Lawan Bola
+const gameHud = document.getElementById('gameHud'), gamesEl = document.getElementById('games');
+const best = { race: save.best && Number.isFinite(save.best.race) && save.best.race > 0 ? save.best.race : 0 };
+function setHud(text) {
+  if (gameHud.textContent !== text) gameHud.textContent = text;
+  gameHud.hidden = !text;
+}
+const clock = (t) => Math.floor(Math.max(0, t) / 60) + ':' + String(Math.floor(Math.max(0, t) % 60)).padStart(2, '0');
+function stopMini() {
+  if (!mini) return;
+  if (mini.markers) mini.markers.forEach(removeSprite);
+  if (mini.hiders) mini.hiders.forEach((hd) => scene.remove(hd.group));
+  if (mini.bot) removeAvatar(BOT_ID);
+  if (mini.kind === 'match' && net.role === 'host') netSend({ t: 'm', time: 0, a: mini.score[0], b: mini.score[1], end: 1 });
+  mini = null;
+  setHud('');
+}
+
+// --- Lumba Bintang: kumpul bintang ikut turutan; bintang seterusnya besar dan nampak menembusi halangan
+function racePoints() {
+  const pts = [], a0 = Math.random() * Math.PI * 2;
+  for (let i = 0; i < 8; i++) {
+    const a = a0 + (i / 8) * Math.PI * 2;
+    const x = Math.max(3, Math.min(W - 4, Math.round(player.x + Math.cos(a) * 13 + (Math.random() - 0.5) * 5)));
+    const z = Math.max(3, Math.min(D - 4, Math.round(player.z + Math.sin(a) * 13 + (Math.random() - 0.5) * 5)));
+    pts.push([x + 0.5, surfaceY(x, z) + 1.2, z + 0.5]);
+  }
+  return pts;
+}
+function raceLook() {
+  mini.markers.forEach((sp, i) => {
+    const next = i === mini.next;
+    sp.visible = i >= mini.next;
+    sp.scale.setScalar(next ? 1.9 : 0.8);
+    sp.material.opacity = next ? 1 : 0.45;
+    sp.material.depthTest = !next;
+  });
+}
+function startRace(points) {
+  stopMini();
+  const pts = points || racePoints();
+  mini = { kind: 'race', pts, next: 0, time: 0, markers: pts.map((q) => { const sp = fwSprite(starTex, 0xffe14f, 0.8); sp.position.set(q[0], q[1], q[2]); return sp; }) };
+  raceLook();
+  showToast('Kumpul semua bintang ikut turutan - ikut bintang besar!');
+  if (!points && net.role === 'host') netSend({ t: 'race', pts });
+}
+function updateRace(dt) {
+  mini.time += dt;
+  const q = mini.pts[mini.next];
+  // Lalu di bawah bintang pun dikira (bintang mungkin di atas pokok atau bumbung)
+  if (Math.hypot(player.x - q[0], player.z - q[2]) < 1.8 && Math.abs(player.y + 1 - q[1]) < 8) {
+    mini.next++;
+    beep(600 + mini.next * 90, 0.1, 'triangle', 0.07);
+    if (mini.next >= mini.pts.length) {
+      const time = mini.time, record = !best.race || time < best.race;
+      if (record) { best.race = Math.round(time * 10) / 10; saveDirty = true; }
+      stopMini();
+      award('lumba');
+      showToast('Siap dalam ' + time.toFixed(1) + ' saat!' + (record ? ' Rekod baru!' : ' Rekod: ' + best.race.toFixed(1) + ' saat'));
+      [659, 784, 988, 1319].forEach((freq, i) => setTimeout(() => beep(freq, 0.14, 'triangle', 0.07), i * 90));
+      netSend({ t: 'rwin', time: Math.round(time * 10) / 10 });
+      return;
+    }
+    raceLook();
+  }
+  setHud('Bintang ' + mini.next + '/' + mini.pts.length + '  \u00b7  ' + mini.time.toFixed(1) + 's');
+}
+
+// --- Cari Pinky: lima Pinky bersembunyi di celah pokok dan dinding
+const firm = (x, y, z) => { const id = getBlock(x, y, z); return id !== AIR && !BLOCKS[id].passable; };
+function hidingSpots() {
+  const spots = [];
+  for (let attempt = 0; attempt < 600 && spots.length < 5; attempt++) {
+    const a = Math.random() * Math.PI * 2, r = 8 + Math.random() * 18;
+    const x = Math.round(player.x + Math.cos(a) * r), z = Math.round(player.z + Math.sin(a) * r);
+    if (x < 3 || x > W - 4 || z < 3 || z > D - 4) continue;
+    // Aras tanah di bawah dedaun; bukan di atas batang pokok, bukan dalam air
+    let y = -1;
+    for (let yy = H - 2; yy > 0; yy--) {
+      const id = world[idx(x, yy, z)];
+      if (id === AIR || id === LEAVES || id === PALM || BLOCKS[id].passable) continue;
+      y = id === LOG ? -1 : yy + 1;
+      break;
+    }
+    if (y < 0 || world[idx(x, y, z)] !== AIR) continue;
+    const walls = (firm(x + 1, y, z) ? 1 : 0) + (firm(x - 1, y, z) ? 1 : 0) + (firm(x, y, z + 1) ? 1 : 0) + (firm(x, y, z - 1) ? 1 : 0);
+    // Mula-mula cari celah (dua dinding), kemudian longgarkan syarat kalau susah jumpa
+    if (walls < (attempt < 300 ? 2 : attempt < 450 ? 1 : 0)) continue;
+    if (spots.some((q) => Math.hypot(q[0] - x, q[2] - z) < 6)) continue;
+    spots.push([x, y, z]);
+  }
+  return spots;
+}
+function startSeek() {
+  stopMini();
+  const spots = hidingSpots();
+  if (spots.length < 3) { showToast('Tiada tempat bersembunyi di sini - cuba di tempat lain'); return; }
+  mini = {
+    kind: 'seek', found: 0, time: 90, giggle: 2,
+    hiders: spots.map(([x, y, z]) => {
+      const model = makePinkyModel();
+      model.group.position.set(x + 0.5, y, z + 0.5);
+      model.group.rotation.y = Math.random() * Math.PI * 2;
+      scene.add(model.group);
+      return { group: model.group, x: x + 0.5, y, z: z + 0.5, found: false };
+    }),
+  };
+  showToast(mini.hiders.length + ' Pinky bersembunyi dekat sini - cari semuanya!');
+}
+function updateSeek(dt) {
+  mini.time -= dt;
+  mini.giggle -= dt;
+  let nearest = 99;
+  for (const hd of mini.hiders) {
+    if (hd.found) continue;
+    const d = Math.hypot(player.x - hd.x, player.z - hd.z);
+    nearest = Math.min(nearest, d);
+    if (d < 2.2 && Math.abs(player.y - hd.y) < 6) {
+      hd.found = true;
+      mini.found++;
+      scene.remove(hd.group);
+      spawnHearts(hd.x, hd.y + 1, hd.z);
+      beep(880, 0.12, 'sine', 0.08);
+      setTimeout(() => beep(1320, 0.15, 'sine', 0.08), 90);
+      showToast('Jumpa! ' + mini.found + '/' + mini.hiders.length);
+    }
+  }
+  // Petunjuk: Pinky yang dekat ketawa kecil, makin dekat makin nyaring
+  if (mini.giggle <= 0 && nearest < 14) {
+    mini.giggle = 3;
+    beep(1500 - nearest * 50, 0.07, 'sine', 0.05);
+    setTimeout(() => beep(1700 - nearest * 50, 0.07, 'sine', 0.05), 110);
+  }
+  const total = mini.hiders.length;
+  if (mini.found >= total) {
+    stopMini();
+    award('cari');
+    showToast('Hebat! Semua ' + total + ' Pinky dijumpai!');
+    [659, 784, 988, 1319].forEach((freq, i) => setTimeout(() => beep(freq, 0.14, 'triangle', 0.07), i * 90));
+    return;
+  }
+  if (mini.time <= 0) {
+    const found = mini.found;
+    mini.hiders.forEach((hd) => { if (!hd.found) spawnHearts(hd.x, hd.y + 1, hd.z); });
+    stopMini();
+    showToast('Masa tamat! Jumpa ' + found + '/' + total + ' Pinky');
+    return;
+  }
+  setHud('Pinky dijumpai ' + mini.found + '/' + total + '  \u00b7  ' + clock(mini.time));
+}
+
+// --- Lawan Bola: Pink menyerang gol timur, Biru menyerang gol barat
+function startMatch() {
+  if (!ball) { showToast('Padang bola belum ada - tekan Naik Taraf Dunia dulu'); return; }
+  if (net.role === 'guest') { showToast('Hos yang memulakan perlawanan'); return; }
+  stopMini();
+  resetBall();
+  mini = { kind: 'match', time: 120, score: [0, 0], bot: null, sync: 0 };
+  player.x = 66.5; player.y = FIELD_ZONE.y + 1; player.z = 48.5; player.vy = 0;
+  yaw = -Math.PI / 2;
+  pitch = -0.1;
+  if (!net.conns.size) {
+    // Main seorang: lawan pemain komputer berbaju biru
+    const a = makeAvatar(BOT_ID, 1, 3);
+    a.fresh = false;
+    mini.bot = { a, x: 78.5, y: FIELD_ZONE.y + 1, z: 48.5, vx: 0, vy: 0, vz: 0, hw: 0.3, h: 1.8, onGround: false, floats: true, cool: 1 };
+    a.x = a.tx = mini.bot.x; a.y = a.ty = mini.bot.y; a.z = a.tz = mini.bot.z;
+  }
+  showToast('Awak pasukan Pink - jaringkan di gol sebelah TIMUR!');
+}
+function updateBot(bot, dt) {
+  // Kejar bola dari sebelah timur supaya sepakan menghala ke gol barat
+  const tx = ball.x + 0.6, tz = ball.z, dx = tx - bot.x, dz = tz - bot.z, d = Math.hypot(dx, dz) || 1;
+  const speed = d > 0.3 ? 3 : 0;
+  bot.vx = (dx / d) * speed; bot.vz = (dz / d) * speed;
+  if (moveEntity(bot, dt) && bot.onGround) bot.vy = JUMP_SPEED;
+  bot.cool -= dt;
+  if (bot.cool <= 0 && Math.hypot(ball.x - bot.x, ball.z - bot.z) < 1 && Math.abs(ball.y - bot.y) < 1.5) {
+    const gx = 61.5 - ball.x, gz = 48.5 + (Math.random() - 0.5) * 3 - ball.z, g = Math.hypot(gx, gz) || 1;
+    ball.vx = (gx / g) * 8; ball.vz = (gz / g) * 8; ball.vy = 3;
+    ball.cool = 0.3;
+    bot.cool = 1.3;
+    beep(240, 0.08, 'triangle', 0.06);
+  }
+  bot.a.tx = bot.x; bot.a.ty = bot.y; bot.a.tz = bot.z;
+  if (speed) bot.a.tyaw = Math.atan2(dx, dz) - Math.PI;
+  if (!net.role) updateAvatars(dt); // di luar bilik, watak tidak dikemas kini oleh rangkaian
+}
+function matchResult(a, b, myTeam) {
+  const text = a === b ? 'Seri ' + a + ' - ' + b + '!' : 'Pasukan ' + (a > b ? 'Pink' : 'Biru') + ' menang ' + Math.max(a, b) + ' - ' + Math.min(a, b) + '!';
+  showToast('Tamat! ' + text);
+  if (a !== b && (a > b ? 0 : 1) === myTeam) award('lawan');
+  [523, 659, 784, 1047].forEach((freq, i) => setTimeout(() => beep(freq, 0.16, 'square', 0.06), i * 110));
+}
+const myTeam = () => (net.role ? (net.myId % 2 ? 0 : 1) : 0);
+function updateMatch(dt) {
+  mini.time -= dt;
+  if (mini.bot) updateBot(mini.bot, dt);
+  mini.sync += dt;
+  if (mini.sync >= 1) {
+    mini.sync = 0;
+    if (net.role === 'host') netSend({ t: 'm', time: Math.round(mini.time), a: mini.score[0], b: mini.score[1] });
+  }
+  if (mini.time <= 0) {
+    const [a, b] = mini.score;
+    stopMini();
+    matchResult(a, b, myTeam());
+    return;
+  }
+  setHud('Pink ' + mini.score[0] + ' - ' + mini.score[1] + ' Biru  \u00b7  ' + clock(mini.time));
+}
+// Tetamu: papan markah daripada hos
+function matchFromHost(m) {
+  if (![m.time, m.a, m.b].every(Number.isFinite)) return;
+  if (m.end || m.time <= 0) {
+    if (mini && mini.kind === 'matchView') { stopMini(); matchResult(m.a, m.b, myTeam()); }
+    return;
+  }
+  if (!mini || mini.kind !== 'matchView') {
+    stopMini();
+    showToast('Perlawanan bermula! Awak pasukan ' + (myTeam() ? 'Biru - gol BARAT' : 'Pink - gol TIMUR'));
+  }
+  mini = { kind: 'matchView', time: m.time, a: m.a, b: m.b };
+}
+function updateMini(dt) {
+  if (!mini) return;
+  if (mini.kind === 'race') updateRace(dt);
+  else if (mini.kind === 'seek') updateSeek(dt);
+  else if (mini.kind === 'match') updateMatch(dt);
+  else if (mini.kind === 'matchView') {
+    mini.time -= dt;
+    setHud('Pink ' + mini.a + ' - ' + mini.b + ' Biru  \u00b7  ' + clock(mini.time));
+  }
+}
+// Panel pilihan permainan: mula, kemudian terus sambung bermain
+function launchMini(start) {
+  gamesEl.classList.add('hidden');
+  if (!playing) startPlaying();
+  start();
+}
+document.getElementById('gamesBtn').addEventListener('click', () => {
+  document.getElementById('raceBest').textContent = best.race ? 'Rekod awak: ' + best.race.toFixed(1) + ' saat' : 'Belum ada rekod';
+  gamesEl.classList.remove('hidden');
+});
+document.getElementById('gamesClose').addEventListener('click', () => gamesEl.classList.add('hidden'));
+document.getElementById('gameRace').addEventListener('click', () => launchMini(() => startRace()));
+document.getElementById('gameSeek').addEventListener('click', () => launchMini(startSeek));
+document.getElementById('gameMatch').addEventListener('click', () => launchMini(startMatch));
+document.getElementById('gameStop').addEventListener('click', () => { stopMini(); gamesEl.classList.add('hidden'); });
 
 // ---------- Kawalan ----------
 const overlay = document.getElementById('overlay');
@@ -3715,6 +3973,8 @@ function hostData(conn, m) {
     const msg = { t: 'p', id, x: m.x, y: m.y, z: m.z, yaw: m.yaw, c: m.c, h: m.h };
     onPlayerMsg(msg);
     netSend(msg, id);
+  } else if (m.t === 'rwin') {
+    if (Number.isFinite(m.time)) { showToast('Kawan siap Lumba Bintang dalam ' + m.time.toFixed(1) + ' saat!'); netSend({ t: 'rwin', time: m.time }, id); }
   } else if (m.t === 'z') {
     if (daylight < 0.5) wakeUp();
   } else if (m.t === 'f') {
@@ -3783,6 +4043,13 @@ function guestData(m) {
     if (Number.isFinite(m.time)) dayTime = m.time % DAY_LENGTH;
   } else if (m.t === 'f') {
     if ([m.x, m.y, m.z].every(Number.isFinite)) spawnRocket(m.x, m.y, m.z);
+  } else if (m.t === 'race') {
+    const pts = Array.isArray(m.pts) ? m.pts.filter((q) => Array.isArray(q) && q.length === 3 && q.every(Number.isFinite)).slice(0, 12) : [];
+    if (pts.length >= 3) startRace(pts);
+  } else if (m.t === 'rwin') {
+    if (Number.isFinite(m.time)) showToast('Kawan siap Lumba Bintang dalam ' + m.time.toFixed(1) + ' saat!');
+  } else if (m.t === 'm') {
+    matchFromHost(m);
   } else if (m.t === 'g') {
     award('gol');
     showToast('GOOOL! Jumlah gol: ' + (Number.isInteger(m.n) ? m.n : ''));
@@ -3867,7 +4134,7 @@ function frame(now) {
   }
   updateJellies(dt);
   netTick(dt);
-  if (playing && !bagOpen && !dead) growTick(dt);
+  if (playing && !bagOpen && !dead) { growTick(dt); updateMini(dt); }
   updateFireworks(dt);
   musicTick(dt);
   updateHearts(dt);
@@ -3905,7 +4172,7 @@ requestAnimationFrame(frame);
 window.__pink = { player, mobs, world, getBlock, setBlock, doPlace, breakBlock, get treasures() { return treasures; }, mining, inv, drops, addItem, heldId, RECIPES, craft, ITEMS, renderHotbar, damage, renderStats,
   get health() { return health; }, set health(v) { health = v; },
   get hunger() { return hunger; }, set hunger(v) { hunger = v; },
-  get dead() { return dead; }, jellies, lightAt, sprouts, plantSeed, tameCritter, earned, award, look: myLook, sleepInBed, launchFirework, rockets, sparks, parkSites, houseSites, houseVersion, net, avatars, netHost, netJoin, netLeave, guest, critters, GEN, UPGRADED, kickBall, interact, weather, setRain,
+  get dead() { return dead; }, jellies, lightAt, startRace, startSeek, startMatch, stopMini, best, get mini() { return mini; }, sprouts, plantSeed, tameCritter, earned, award, look: myLook, sleepInBed, launchFirework, rockets, sparks, parkSites, houseSites, houseVersion, net, avatars, netHost, netJoin, netLeave, guest, critters, GEN, UPGRADED, kickBall, interact, weather, setRain,
   get rainAmt() { return rainAmt; }, get rainbowAmt() { return rainbowAmt; },
   get ball() { return ball; }, get riding() { return riding; }, get goals() { return goals; }, get consoleMode() { return consoleMode; },
   get dayTime() { return dayTime; }, set dayTime(v) { dayTime = v; }, get daylight() { return daylight; },
