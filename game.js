@@ -555,7 +555,7 @@ function snapshotWorld() {
       seed: save.seed, size: 2, gen: pendingUpgrade ? 2 : GEN, base: pendingUpgrade || UPGRADED ? 1 : 0, fix: pendingUpgrade ? 1 : 0, edits: flat,
       player: [player.x, player.y, player.z, yaw, pitch], slot: selected,
       houses: houseSites, housesV: houseVersion, parks: parkSites,
-      best, stickers: [...earned], stats, look: myLook, music: musicOn ? 1 : 0, gift: 2,
+      best, stickers: [...earned], stats, look: myLook, music: musicOn ? 1 : 0, ghost: ghostOn ? 1 : 0, gift: 2,
       petsC: critters.filter((c) => c.tame).map((c) => [c.kind, Math.round(c.x * 10) / 10, Math.round(c.y * 10) / 10, Math.round(c.z * 10) / 10]),
       pets: mobs.filter((m) => m.tame).map((m) => [Math.round(m.x * 10) / 10, Math.round(m.y * 10) / 10, Math.round(m.z * 10) / 10]),
       mode, controls: consoleMode ? 'console' : 'touch', health, hunger, time: Math.round(dayTime), inv: inv.map((it) => (it ? (it.dur ? [it.id, it.count, it.dur] : [it.id, it.count]) : 0)),
@@ -2733,10 +2733,15 @@ ghost.scale.setScalar(4.03); // geometri drop bersaiz 0.25 block
 ghost.visible = false;
 ghost.renderOrder = 2;
 scene.add(ghost);
+let ghostOn = save.ghost === 1; // dimatikan secara lalai; hidupkan dari menu
+const ghostBtn = document.getElementById('ghostBtn');
+function renderGhostBtn() { ghostBtn.textContent = ghostOn ? 'Bayang Block: Hidup' : 'Bayang Block: Mati'; }
+ghostBtn.addEventListener('click', () => { ghostOn = !ghostOn; saveDirty = true; renderGhostBtn(); });
+renderGhostBtn();
 function updateGhost(target, time) {
   ghost.visible = false;
   const id = heldId();
-  if (!target || !target.face || id === AIR || ITEMS[id] || !BLOCKS[id] || holdPoint || padMining || mouseMining) return;
+  if (!ghostOn || !target || !target.face || id === AIR || ITEMS[id] || !BLOCKS[id] || holdPoint || padMining || mouseMining) return;
   const tdef = BLOCKS[target.id];
   if (tdef.chest || tdef.gives || target.id === STORAGE || target.id === SOFA || target.id === WARDROBE || target.id === GLOW || target.id === GLOW_OFF) return;
   const x = target.x + target.face[0], y = target.y + target.face[1], z = target.z + target.face[2];
