@@ -150,6 +150,7 @@ function writeSave() {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
       seed: save.seed, edits: flat,
       player: [player.x, player.y, player.z, yaw, pitch], slot: selected,
+      mode, inv: inv.map((it) => (it ? [it.id, it.count] : 0)),
     }));
   } catch (e) { /* storan penuh atau disekat: game tetap jalan tanpa simpan */ }
 }
@@ -554,7 +555,7 @@ function spawnPinky(x, z) {
 function updateMob(m, dt, time) {
   const dx = player.x - m.x, dz = player.z - m.z, dist = Math.hypot(dx, dz);
   let speed = 0;
-  if (HOTBAR[selected] === HEART && dist < 12) {
+  if (heldId() === HEART && dist < 12) {
     m.yaw = Math.atan2(dx, dz);
     speed = dist > 2.2 ? 2.2 : 0;
   } else {
@@ -671,6 +672,7 @@ function pet(m) {
 function breakBlock(hit) {
   setBlock(hit.x, hit.y, hit.z, AIR);
   burst(hit.x, hit.y, hit.z, hit.id);
+  if (mode === 'survival') spawnDrop(hit.x, hit.y, hit.z, hit.id);
   beep(180, 0.09, 'square', 0.05);
 }
 
@@ -684,7 +686,10 @@ function doPlace(sx, sy) {
   if (x + 1 > player.x - player.hw && x < player.x + player.hw &&
       z + 1 > player.z - player.hw && z < player.z + player.hw &&
       y + 1 > player.y && y < player.y + player.h) return;
-  setBlock(x, y, z, HOTBAR[selected]);
+  const id = heldId();
+  if (id === AIR) { showToast('Slot kosong - pecahkan block untuk kumpul'); return; }
+  setBlock(x, y, z, id);
+  consumeHeld();
   beep(420, 0.06, 'triangle', 0.07);
 }
 
@@ -772,6 +777,68 @@ function updateParticles(dt) {
   }
 }
 
+// ---------- Item jatuh (survival) ----------
+const drops = [];
+const dropGeos = {};
+// Kiub kecil dengan texture block yang sama
+function dropGeo(id) {
+  if (dropGeos[id]) return dropGeos[id];
+  const g = new THREE.BoxGeometry(0.25, 0.25, 0.25);
+  const uv = g.attributes.uv, def = BLOCKS[id], cols = [];
+  const shades = [0.8, 0.8, 1, 0.55, 0.68, 0.68]; // +x, -x, +y, -y, +z, -z
+  for (let i = 0; i < uv.count; i++) {
+    const face = Math.floor(i / 4);
+    const tile = face === 2 ? def.tiles[0] : face === 3 ? def.tiles[1] : def.tiles[2];
+    const u = UV_INSET + uv.getX(i) * (1 - 2 * UV_INSET), v = UV_INSET + uv.getY(i) * (1 - 2 * UV_INSET);
+    uv.setXY(i, ((tile % 4) + u) / 4, 1 - ((tile >> 2) + 1 - v) / 4);
+    const sh = def.glow ? 1 : shades[face];
+    cols.push(sh, sh, sh);
+  }
+  g.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+  dropGeos[id] = g;
+  return g;
+}
+function removeDrop(i) {
+  scene.remove(drops[i].mesh);
+  drops.splice(i, 1);
+}
+function spawnDrop(x, y, z, id) {
+  if (drops.length >= 150) removeDrop(0);
+  const mesh = new THREE.Mesh(dropGeo(id), BLOCKS[id].transparent ? glassMat : opaqueMat);
+  scene.add(mesh);
+  drops.push({
+    mesh, id, x: x + 0.5, y: y + 0.4, z: z + 0.5,
+    vx: (Math.random() - 0.5) * 2, vy: 3, vz: (Math.random() - 0.5) * 2,
+    hw: 0.125, h: 0.25, onGround: false, age: 0, spin: Math.random() * 6,
+  });
+}
+function updateDrops(dt, time) {
+  for (let i = drops.length - 1; i >= 0; i--) {
+    const d = drops[i];
+    d.age += dt;
+    const dx = player.x - d.x, dy = player.y + 0.9 - d.y, dz = player.z - d.z;
+    const dist = Math.hypot(dx, dy, dz);
+    if (d.age > 0.4 && dist < 2.2 && hasRoom(d.id)) {
+      // Dekat pemain: item terbang masuk ke inventori
+      if (dist < 0.7) {
+        addItem(d.id);
+        beep(900 + Math.random() * 200, 0.06, 'sine', 0.05);
+        removeDrop(i);
+        continue;
+      }
+      const pull = Math.min(1, 10 * dt);
+      d.x += dx * pull; d.y += dy * pull; d.z += dz * pull;
+      d.vy = 0;
+    } else {
+      if (d.onGround) d.vx = d.vz = 0;
+      moveEntity(d, dt);
+      if (d.y < -20) { removeDrop(i); continue; }
+    }
+    d.mesh.position.set(d.x, d.y + 0.17 + Math.sin(time * 3 + d.spin) * 0.05, d.z);
+    d.mesh.rotation.y = time * 1.5 + d.spin;
+  }
+}
+
 // ---------- Melombong: tahan pada block sampai retak penuh ----------
 const mining = { key: -1, progress: 0, tick: 0 };
 let holdPoint = null;      // jari yang sedang menahan (sentuh)
@@ -806,16 +873,85 @@ function updateMining(dt) {
   return hit;
 }
 
-// ---------- Hotbar ----------
-let selected = Number.isInteger(save.slot) && save.slot >= 0 && save.slot < HOTBAR.length ? save.slot : 0;
+// ---------- Inventori & hotbar ----------
+// Survival: 27 slot (9 pertama = hotbar), block terhad. Kreatif: palet tetap, tanpa had.
+const INV_SIZE = 27, HOT_SIZE = 9, STACK = 64;
+const STARTER = [[BRICK, 20], [PLANKS, 20], [HEART, 10], [CANDY, 10], [GLOW, 10], [GLASS, 10]];
+let mode = save.mode === 'creative' ? 'creative' : 'survival';
+const inv = new Array(INV_SIZE).fill(null);
+if (Array.isArray(save.inv)) {
+  save.inv.slice(0, INV_SIZE).forEach((it, i) => {
+    if (Array.isArray(it) && BLOCKS[it[0]] && it[1] > 0) inv[i] = { id: it[0], count: Math.min(STACK, it[1]) };
+  });
+} else {
+  STARTER.forEach(([id, count], i) => { inv[i] = { id, count }; });
+}
+let selected = Number.isInteger(save.slot) && save.slot >= 0 && save.slot < HOT_SIZE ? save.slot : 0;
 const hotbarEl = document.getElementById('hotbar');
 const toastEl = document.getElementById('toast');
+const bagEl = document.getElementById('bag'), bagGrid = document.getElementById('bagGrid');
 let toastTimer = 0;
-function selectSlot(i, quiet) {
-  selected = (i + HOTBAR.length) % HOTBAR.length;
-  [...hotbarEl.children].forEach((el, j) => el.classList.toggle('on', j === selected));
+let bagOpen = false, bagPick = -1;
+
+const slotItem = (i) => (mode === 'creative' ? { id: HOTBAR[i], count: 0 } : inv[i]);
+function heldId() {
+  const it = slotItem(selected);
+  return it ? it.id : AIR;
+}
+function consumeHeld() {
+  if (mode !== 'survival') return;
+  const it = inv[selected];
+  it.count--;
+  if (it.count <= 0) inv[selected] = null;
   saveDirty = true;
-  if (!quiet) showToast(BLOCKS[HOTBAR[selected]].name);
+  renderHotbar();
+}
+const hasRoom = (id) => inv.some((it) => !it || (it.id === id && it.count < STACK));
+function addItem(id) {
+  let i = inv.findIndex((it) => it && it.id === id && it.count < STACK);
+  if (i < 0) i = inv.findIndex((it) => !it);
+  if (i < 0) return false;
+  if (inv[i]) inv[i].count++; else inv[i] = { id, count: 1 };
+  saveDirty = true;
+  renderHotbar();
+  return true;
+}
+
+function makeSlot(item, onTap) {
+  const slot = document.createElement('div');
+  slot.className = 'slot';
+  if (item) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 16;
+    const tile = BLOCKS[item.id].tiles[2];
+    c.getContext('2d').drawImage(atlasCanvas, (tile % 4) * 16, (tile >> 2) * 16, 16, 16, 0, 0, 16, 16);
+    slot.appendChild(c);
+    if (mode === 'survival') {
+      const cnt = document.createElement('span');
+      cnt.className = 'cnt';
+      cnt.textContent = item.count;
+      slot.appendChild(cnt);
+    }
+  }
+  slot.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); onTap(); });
+  return slot;
+}
+function renderHotbar() {
+  const slots = [];
+  for (let i = 0; i < HOT_SIZE; i++) {
+    const el = makeSlot(slotItem(i), () => selectSlot(i));
+    el.classList.toggle('on', i === selected);
+    slots.push(el);
+  }
+  hotbarEl.replaceChildren(...slots);
+  if (bagOpen) renderBag();
+}
+function selectSlot(i, quiet) {
+  selected = (i + HOT_SIZE) % HOT_SIZE;
+  saveDirty = true;
+  renderHotbar();
+  const it = slotItem(selected);
+  if (!quiet && it) showToast(BLOCKS[it.id].name);
 }
 function showToast(text) {
   toastEl.textContent = text;
@@ -823,18 +959,67 @@ function showToast(text) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { toastEl.style.opacity = 0; }, 1200);
 }
-HOTBAR.forEach((id, i) => {
-  const slot = document.createElement('div');
-  slot.className = 'slot';
-  const c = document.createElement('canvas');
-  c.width = c.height = 16;
-  const tile = BLOCKS[id].tiles[2];
-  c.getContext('2d').drawImage(atlasCanvas, (tile % 4) * 16, (tile >> 2) * 16, 16, 16, 0, 0, 16, 16);
-  slot.appendChild(c);
-  slot.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); selectSlot(i); });
-  hotbarEl.appendChild(slot);
+
+// Beg: ketik satu slot, kemudian ketik slot lain untuk tukar tempat (atau gabung kalau sama)
+function renderBag() {
+  bagGrid.replaceChildren(...inv.map((it, i) => {
+    const el = makeSlot(it, () => tapBag(i));
+    el.classList.toggle('on', i === bagPick);
+    el.classList.toggle('hot', i < HOT_SIZE);
+    return el;
+  }));
+}
+function tapBag(i) {
+  if (bagPick < 0) {
+    if (inv[i]) bagPick = i;
+  } else if (bagPick === i) {
+    bagPick = -1;
+  } else {
+    const a = inv[bagPick], b = inv[i];
+    if (b && a.id === b.id) {
+      const move = Math.min(a.count, STACK - b.count);
+      b.count += move;
+      a.count -= move;
+      if (a.count <= 0) inv[bagPick] = null;
+    } else {
+      inv[bagPick] = b;
+      inv[i] = a;
+    }
+    bagPick = -1;
+    saveDirty = true;
+  }
+  renderHotbar();
+}
+function setBag(open) {
+  bagOpen = open;
+  bagPick = -1;
+  bagEl.classList.toggle('hidden', !open);
+  joy.x = joy.y = 0;
+  jumpHeld = false;
+  holdPoint = null;
+  mouseMining = false;
+  for (const k in keys) keys[k] = false;
+  if (open) {
+    renderBag();
+    if (locked()) document.exitPointerLock();
+  } else if (!isTouch && playing && canvas.requestPointerLock) {
+    const p = canvas.requestPointerLock();
+    if (p && p.catch) p.catch(() => {});
+  }
+}
+function applyMode() {
+  document.body.classList.toggle('creative', mode === 'creative');
+  document.getElementById('modeBtn').textContent = mode === 'survival' ? 'Mod: Survival (tukar ke Kreatif)' : 'Mod: Kreatif (tukar ke Survival)';
+  renderHotbar();
+}
+document.getElementById('bagBtn').addEventListener('click', () => { if (playing && mode === 'survival') setBag(!bagOpen); });
+document.getElementById('bagClose').addEventListener('click', () => setBag(false));
+document.getElementById('modeBtn').addEventListener('click', () => {
+  mode = mode === 'survival' ? 'creative' : 'survival';
+  saveDirty = true;
+  applyMode();
 });
-selectSlot(selected, true);
+applyMode();
 
 // ---------- Kawalan ----------
 const overlay = document.getElementById('overlay');
@@ -844,7 +1029,7 @@ const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in win
 if (isTouch) document.body.classList.add('touch');
 document.getElementById('tips').innerHTML = isTouch
   ? 'Kayu bedik kiri: jalan &bull; Seret skrin: pandang<br>Ketik: letak block &bull; Tekan &amp; tahan: pecah block<br>Ketik Pinky untuk usap'
-  : 'WASD: jalan &bull; Space: lompat &bull; Tetikus: pandang<br>Tahan klik kiri: pecah &bull; Klik kanan: letak<br>1-9 / roda tetikus: pilih block &bull; Esc: menu';
+  : 'WASD: jalan &bull; Space: lompat &bull; Tetikus: pandang<br>Tahan klik kiri: pecah &bull; Klik kanan: letak<br>1-9 / roda tetikus: pilih block &bull; E: beg &bull; Esc: menu';
 
 const locked = () => document.pointerLockElement === canvas;
 
@@ -865,6 +1050,8 @@ function startPlaying() {
 }
 function pause() {
   playing = false;
+  bagOpen = false;
+  bagEl.classList.add('hidden');
   joy.x = joy.y = 0;
   jumpHeld = false;
   holdPoint = null;
@@ -891,20 +1078,22 @@ newWorldBtn.addEventListener('click', () => {
 });
 document.addEventListener('pointerlockchange', () => {
   document.body.classList.toggle('locked', locked());
-  if (!locked() && playing && !isTouch) pause();
+  if (!locked() && playing && !isTouch && !bagOpen) pause();
 });
 
 window.addEventListener('keydown', (e) => {
   if (!playing) return;
+  if (e.code === 'KeyE' && mode === 'survival') { setBag(!bagOpen); return; }
+  if (bagOpen) return;
   keys[e.code] = true;
   if (e.code.startsWith('Digit')) {
     const n = Number(e.code.slice(5));
-    if (n >= 1 && n <= HOTBAR.length) selectSlot(n - 1);
+    if (n >= 1 && n <= HOT_SIZE) selectSlot(n - 1);
   }
   if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
 });
 window.addEventListener('keyup', (e) => { keys[e.code] = false; });
-window.addEventListener('wheel', (e) => { if (playing) selectSlot(selected + (e.deltaY > 0 ? 1 : -1)); }, { passive: true });
+window.addEventListener('wheel', (e) => { if (playing && !bagOpen) selectSlot(selected + (e.deltaY > 0 ? 1 : -1)); }, { passive: true });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 function look(dx, dy, sens) {
@@ -1007,10 +1196,11 @@ function frame(now) {
   last = now;
   const time = now / 1000;
 
-  if (playing) updatePlayer(dt);
+  if (playing && !bagOpen) updatePlayer(dt);
   for (const m of mobs) updateMob(m, dt, time);
   updateHearts(dt);
   updateParticles(dt);
+  updateDrops(dt, time);
   for (const c of clouds) {
     c.position.x += dt * 0.8;
     if (c.position.x > 190) c.position.x = -90;
@@ -1035,4 +1225,4 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // Untuk ujian dari konsol
-window.__pink = { player, mobs, world, getBlock, setBlock, doPlace, mining, surfaceY, startPlaying, selectSlot, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, get pitch() { return pitch; }, set pitch(v) { pitch = v; } };
+window.__pink = { player, mobs, world, getBlock, setBlock, doPlace, mining, inv, drops, addItem, heldId, get mode() { return mode; }, surfaceY, startPlaying, selectSlot, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, get pitch() { return pitch; }, set pitch(v) { pitch = v; } };
