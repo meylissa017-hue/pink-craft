@@ -20,7 +20,7 @@ const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, LOG = 4, LEAVES = 5, BRICK = 6, P
   BED_HEAD = 30, BED_FOOT = 31, SHELF = 32, RUG = 33, PAINT_PINKY = 34, PAINT_RAINBOW = 35, FLOWERS = 36,
   SOFA = 37, TABLE = 38, TV = 39, KITCHEN = 40, WARDROBE = 41, FENCE = 42,
   STRAW_SPROUT = 43, STRAW_RIPE = 44, CARROT_SPROUT = 45, CARROT_RIPE = 46, FLOWER_SPROUT = 47,
-  SLIDE = 48, WSLIDE = 49, GRASS_G = 50, LEAVES_G = 51, RAIL = 52, SHOP_ICE = 53, SHOP_CANDY = 54, STORAGE = 55;
+  SLIDE = 48, WSLIDE = 49, GRASS_G = 50, LEAVES_G = 51, RAIL = 52, SHOP_ICE = 53, SHOP_CANDY = 54, STORAGE = 55, GLOW_OFF = 56;
 // Item yang digugurkan oleh bijih (ditakrif di sini kerana BLOCKS merujuknya)
 const KRISTAL = 113, EMAS = 114, PERMATA = 115;
 // Benih dan hasil kebun (juga dirujuk oleh BLOCKS)
@@ -37,6 +37,7 @@ const BLOCKS = {
   [PLANKS]: { name: 'Pink Planks', hard: 1.2, tool: 'axe', tiles: [8, 8, 8] },
   [HEART]: { name: 'Heart Block', hard: 1, tool: 'pick', tiles: [9, 9, 9] },
   [CANDY]: { name: 'Candy Block', hard: 1, tool: 'pick', tiles: [10, 10, 10] },
+  [GLOW_OFF]: { name: 'Lampu Pink (Padam)', hard: 0.6, tool: 'pick', tiles: [11,11,11] },
   [GLOW]: { name: 'Pink Glow Block', hard: 0.6, tool: 'pick', tiles: [11, 11, 11], glow: true },
   [GLASS]: { name: 'Pink Glass', hard: 0.3, tiles: [12, 12, 12], transparent: true },
   [BEDROCK]: { name: 'Bedrock', hard: Infinity, tiles: [13, 13, 13] },
@@ -1804,6 +1805,7 @@ const keys = {};
 const joy = { x: 0, y: 0 };
 let jumpHeld = false;
 let playing = false;
+let flying = false, flyDown = false, furnitureSeat = null;
 
 // Gelongsor: block gelongsor di bawah kaki menolak pemain ke arah block gelongsor jiran yang setingkat lebih rendah
 let slideDir = null, slideTime = 0;
@@ -1831,6 +1833,10 @@ function slidePush(dt) {
 }
 function updatePlayer(dt) {
   saveDirty = true;
+  if (furnitureSeat) {
+    if (getBlock(furnitureSeat.x,furnitureSeat.y,furnitureSeat.z)!==SOFA) stopRide();
+    else { player.vx=player.vy=player.vz=0; fallPeak=player.y; return; }
+  }
   if (seatRide) {
     // Duduk di roda Ferris, karusel atau kereta api: pemain ikut tempat duduk, hanya pandangan yang bebas
     player.x = seatRide.x; player.y = seatRide.y; player.z = seatRide.z;
@@ -1849,6 +1855,15 @@ function updatePlayer(dt) {
   const speed = WALK_SPEED * (riding ? 1.7 : 1) * (player.inWater ? 0.65 : 1);
   player.vx = (-sin * f + cos * s) * speed;
   player.vz = (-cos * f - sin * s) * speed;
+  if (flying && mode === 'creative') {
+    player.vy=((jumpHeld||keys.Space)?6:0)-((flyDown||keys.ShiftLeft||keys.ShiftRight)?6:0);
+    for (const [axis,delta] of [['x',player.vx*dt*1.6],['z',player.vz*dt*1.6],['y',player.vy*dt]]) {
+      const p={x:player.x,y:player.y,z:player.z};p[axis]+=delta;
+      p.x=Math.max(player.hw,Math.min(W-player.hw,p.x));p.z=Math.max(player.hw,Math.min(D-player.hw,p.z));p.y=Math.min(H+16,p.y);
+      if(!boxCollides(p.x,p.y,p.z,player.hw,player.h))player[axis]=p[axis];
+    }
+    player.onGround=false;fallPeak=player.y;return;
+  }
   if ((jumpHeld || keys.Space) && player.onGround) { player.vy = JUMP_SPEED; exhaust += 0.03; }
   if ((jumpHeld || keys.Space) && player.inWater) player.vy = 3.2; // berenang naik
 
@@ -2322,6 +2337,7 @@ function breakBlock(hit) {
 
 function doPlace(sx, sy) {
   const res = aim(sx, sy), hit = res.hit;
+  if (hit && useFurniture(hit)) return;
   if (hit?.id === STORAGE) { openStorage(hit); return; }
   if (interact(res)) return;
   if (hit && BLOCKS[hit.id].chest) { breakBlock(hit); return; } // tekan peti untuk buka
@@ -2376,6 +2392,7 @@ function tameCritter(m) {
   showToast('Ia kini kawan awak dan akan ikut awak!');
 }
 function startRide(m) {
+  if(furnitureSeat)stopRide(); flying=false;syncFlight();
   riding = m;
   award('tunggang');
   dismountBtn.classList.remove('hidden');
@@ -2383,6 +2400,7 @@ function startRide(m) {
   showToast('Menunggang Pinky! Tekan Turun untuk turun');
 }
 function stopRide() {
+  if(furnitureSeat){const p=furnitureSeat.exit;player.x=p[0];player.y=p[1];player.z=p[2];furnitureSeat=null;if(boxCollides(player.x,player.y,player.z,player.hw,player.h)){player.y=surfaceY(Math.floor(player.x),Math.floor(player.z));if(boxCollides(player.x,player.y,player.z,player.hw,player.h))respawn();}player.vy=0;fallPeak=player.y;}
   if (seatRide) {
     // Turun dari permainan taman tema: ke tempat keluar yang selamat, atau ke tanah di bawah tempat duduk
     const exit = seatRide.ride.exit;
@@ -3018,6 +3036,28 @@ function updateMining(dt) {
   return hit;
 }
 
+function syncFlight() {
+  document.getElementById('flyToggle').hidden=mode!=='creative';
+  document.getElementById('flyToggle').textContent=flying?'Terbang: ON':'Terbang: OFF';
+  document.getElementById('flyDown').hidden=!flying;
+  document.querySelector('#jump small').textContent=flying?'naik':'lompat';
+}
+function toggleFlight() {
+  if(mode!=='creative'||!playing||bagOpen||dead)return;
+  stopRide();flying=!flying;flyDown=false;player.vy=0;fallPeak=player.y;syncFlight();
+  showToast(flying?'Terbang! A / Space: naik · Turun / Shift: turun':'Terbang dimatikan');
+}
+function useFurniture(hit) {
+  if(hit.id===GLOW||hit.id===GLOW_OFF){setBlock(hit.x,hit.y,hit.z,hit.id===GLOW?GLOW_OFF:GLOW);showToast(hit.id===GLOW?'Lampu dipadam':'Lampu dinyalakan');return true;}
+  if(hit.id===WARDROBE){pause();renderLook();lookEl.classList.remove('hidden');return true;}
+  if(hit.id!==SOFA)return false;
+  const x=hit.x+0.5,y=hit.y+1.01,z=hit.z+0.5;
+  if(boxCollides(x,y,z,player.hw,player.h)){showToast('Ruang di atas sofa terhalang.');return true;}
+  stopRide();flying=false;syncFlight();
+  furnitureSeat={x:hit.x,y:hit.y,z:hit.z,exit:[player.x,player.y,player.z]};player.x=x;player.y=y;player.z=z;player.vy=0;fallPeak=y;
+  dismountBtn.classList.remove('hidden');showToast('Duduk di sofa. Tekan Turun untuk bangun.');return true;
+}
+
 // ---------- Inventori & hotbar ----------
 // 36 slot (9 pertama = hotbar). Kreatif menggunakan item pilihan dalam beg tanpa menghabiskan block.
 const INV_SIZE = 36, HOT_SIZE = 9, STACK = 64;
@@ -3329,6 +3369,7 @@ function setBag(open) {
   if (!open && !playing) overlay.classList.remove('hidden');
   joy.x = joy.y = 0;
   jumpHeld = false;
+  flyDown = false;
   holdPoint = null;
   mouseMining = false;
   padMining = false;
@@ -3342,6 +3383,8 @@ function setBag(open) {
   }
 }
 function applyMode() {
+  if(mode!=='creative' && flying){flying=false;player.y=surfaceY(Math.floor(player.x),Math.floor(player.z));player.vy=0;fallPeak=player.y;}
+  syncFlight();
   document.body.classList.toggle('creative', mode === 'creative');
   document.getElementById('modeBtn').textContent = mode === 'survival' ? 'Mod: Survival (tukar ke Kreatif)' : 'Mod: Kreatif (tukar ke Survival)';
   renderHotbar();
@@ -3410,6 +3453,7 @@ function damage(amount) {
   if (health <= 0) die();
 }
 function die() {
+  if(furnitureSeat)stopRide();
   dead = true;
   joy.x = joy.y = 0;
   jumpHeld = false;
@@ -3564,7 +3608,15 @@ renderStickers();
 // ---------- Rupa pemain ----------
 const LOOK_COLORS = [0xff4fa3, 0x6fb7ff, 0xffe14f, 0x6de38a, 0xc58cff, 0xff7a59];
 const HATS = ['Tiada', 'Mahkota', 'Reben', 'Topi'];
+const HAIR_COLORS=[0x8f566c,0x302237,0xd9ad67,0xff80bc,0x8d76d8];
+const SKIN_COLORS=[0xffd9b3,0xe8b38c,0xbc805b,0x805039];
+const HAIR_STYLES=['Pendek','Panjang','Dua Ikatan'];
+function lookExtras(v={}) {
+  const choice=(n,max)=>Number.isInteger(n)&&n>=0&&n<max?n:0;
+  return {hair:choice(v?.hair,HAIR_COLORS.length),skin:choice(v?.skin,SKIN_COLORS.length),style:choice(v?.style,HAIR_STYLES.length),shoes:choice(v?.shoes,LOOK_COLORS.length),name:typeof v?.name==='string'?v.name.replace(/[\u0000-\u001f<>]/g,'').trim().slice(0,20):''};
+}
 const myLook = {
+  ...lookExtras(save.look),
   c: save.look && Number.isInteger(save.look.c) && save.look.c >= 0 && save.look.c < LOOK_COLORS.length ? save.look.c : 0,
   h: save.look && Number.isInteger(save.look.h) && save.look.h >= 0 && save.look.h < HATS.length ? save.look.h : 0,
 };
@@ -3591,13 +3643,20 @@ function drawLook() {
   box(5, 20, 3, 8, '#5a4a8a'); box(8, 20, 3, 8, '#5a4a8a');             // kaki
   box(4, 11, 8, 9, hex(LOOK_COLORS[myLook.c]));                            // badan
   box(1.5, 11, 2.5, 9, hex(LOOK_COLORS[myLook.c])); box(12, 11, 2.5, 9, hex(LOOK_COLORS[myLook.c])); // lengan
-  box(4, 4, 8, 7, '#ffd9b3'); box(4, 3, 8, 2, '#8f566c');                // kepala, rambut
+  box(4, 4, 8, 7, hex(SKIN_COLORS[myLook.skin])); box(4, 3, 8, 2, hex(HAIR_COLORS[myLook.hair]));                // kepala, rambut
   box(5.5, 6.5, 1.3, 1.3, '#3a2460'); box(9.2, 6.5, 1.3, 1.3, '#3a2460'); box(6.7, 9, 2.6, 0.7, '#ff7fbf');
+  if(myLook.style===1){box(3,4,1.5,10,hex(HAIR_COLORS[myLook.hair]));box(11.5,4,1.5,10,hex(HAIR_COLORS[myLook.hair]));}
+  if(myLook.style===2){box(1,5,3,4,hex(HAIR_COLORS[myLook.hair]));box(12,5,3,4,hex(HAIR_COLORS[myLook.hair]));}
+  box(5,26,3,2,hex(LOOK_COLORS[myLook.shoes]));box(8,26,3,2,hex(LOOK_COLORS[myLook.shoes]));
   if (myLook.h === 1) { box(4, 1.6, 8, 1.6, '#ffd633'); box(4, 0.4, 1.4, 1.4, '#ffd633'); box(7.3, 0.4, 1.4, 1.4, '#ffd633'); box(10.6, 0.4, 1.4, 1.4, '#ffd633'); }
   if (myLook.h === 2) { box(5, 0.8, 2.6, 2.4, '#ff2f6d'); box(8.4, 0.8, 2.6, 2.4, '#ff2f6d'); box(7.3, 1.3, 1.4, 1.4, '#ffffff'); }
   if (myLook.h === 3) { box(3.8, 1.4, 8.4, 2.2, '#4a90e0'); box(3.8, 3.4, 10.5, 0.9, '#4a90e0'); }
 }
 function renderLook() {
+  document.getElementById('lookName').value=myLook.name;
+  for (const [id,key,values] of [['lookHair','hair',HAIR_COLORS],['lookSkin','skin',SKIN_COLORS],['lookShoes','shoes',LOOK_COLORS],['lookStyle','style',HAIR_STYLES]]) {
+    document.getElementById(id).replaceChildren(...values.map((value,i)=>{const b=document.createElement('button');b.className=(typeof value==='number'?'swatch':'hat')+(myLook[key]===i?' on':'');if(typeof value==='number'){b.style.background=hex(value);b.setAttribute('aria-label',key+' '+(i+1));}else b.textContent=value;b.onclick=()=>{myLook[key]=i;saveDirty=true;renderLook();};return b;}));
+  }
   document.getElementById('lookColors').replaceChildren(...LOOK_COLORS.map((color, i) => {
     const b = document.createElement('button');
     b.className = i === myLook.c ? 'swatch on' : 'swatch';
@@ -3616,7 +3675,8 @@ function renderLook() {
   drawLook();
 }
 document.getElementById('lookBtn').addEventListener('click', () => { renderLook(); lookEl.classList.remove('hidden'); });
-document.getElementById('lookClose').addEventListener('click', () => lookEl.classList.add('hidden'));
+document.getElementById('lookName').addEventListener('input',e=>{myLook.name=lookExtras({name:e.target.value}).name;saveDirty=true;});
+document.getElementById('lookClose').addEventListener('click', () => {lookEl.classList.add('hidden');writeSave();});
 
 // ---------- Muzik latar ----------
 // Melodi pentatonik lembut yang berulang, dimainkan satu not pada satu masa
@@ -4048,7 +4108,8 @@ function useShop(hit) {
 }
 
 // Model watak (sama bentuk dengan pemain lain dalam Main Bersama)
-function buildAvatarModel(c, h) {
+function buildAvatarModel(c, h, extras = {}) {
+  const look=lookExtras(extras);
   const group = new THREE.Group(), inner = new THREE.Group();
   inner.scale.setScalar(1 / 17);
   const color = LOOK_COLORS[c];
@@ -4056,14 +4117,17 @@ function buildAvatarModel(c, h) {
     const pivot = new THREE.Group();
     pivot.position.set(x, 12, 0);
     part(pivot, 3.6, 12, 3.6, 0x5a4a8a, 0, -6, 0);
+    part(pivot,3.8,2,4.2,LOOK_COLORS[look.shoes],0,-11,0.2);
     inner.add(pivot);
     return pivot;
   });
   part(inner, 8, 11, 4, color, 0, 17.5, 0);
   part(inner, 3, 11, 3.6, color, -5.6, 17.5, 0);
   part(inner, 3, 11, 3.6, color, 5.6, 17.5, 0);
-  part(inner, 8, 8, 8, 0xffd9b3, 0, 27, 0);
-  part(inner, 8.4, 2.4, 8.4, 0x8f566c, 0, 30.4, 0);
+  part(inner, 8, 8, 8, SKIN_COLORS[look.skin], 0, 27, 0);
+  part(inner, 8.4, 2.4, 8.4, HAIR_COLORS[look.hair], 0, 30.4, 0);
+  if(look.style===1){part(inner,9,10,2,HAIR_COLORS[look.hair],0,25,-4);}
+  if(look.style===2)for(const side of [-1,1])part(inner,3,5,4,HAIR_COLORS[look.hair],side*5,27,0);
   addHat(inner, h);
   part(inner, 1.4, 1.4, 0.5, DARK, -1.8, 27.5, 4.1);
   part(inner, 1.4, 1.4, 0.5, DARK, 1.8, 27.5, 4.1);
@@ -4132,6 +4196,7 @@ function addSeat(ride, group) {
   return seat;
 }
 function boardSeat(seat) {
+  if(furnitureSeat)stopRide(); flying=false;syncFlight();
   if (riding) riding = null;
   if (seatRide) seatRide.group.visible = true;
   seatRide = seat;
@@ -4339,6 +4404,7 @@ function startPlaying() {
   }
 }
 function pause() {
+  flyDown=false;
   activeStorage = null;
   catalogPick = null;
   playing = false;
@@ -4378,6 +4444,7 @@ document.addEventListener('pointerlockchange', () => {
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
   if (!playing) return;
+  if (e.code === 'KeyF' && !e.repeat && !bagOpen && !dead) { toggleFlight(); return; }
   if (e.code === 'KeyE' && !dead) { if (!e.repeat) setBag(!bagOpen); return; }
   if (bagOpen) return;
   keys[e.code] = true;
@@ -4503,6 +4570,8 @@ function padButton(id, onDown, onUp) {
   }
 }
 let placeRepeat = 0;
+document.getElementById('flyToggle').onclick=toggleFlight;
+padButton('flyDown',()=>{flyDown=true;},()=>{flyDown=false;});
 padButton('jump', () => { jumpHeld = true; }, () => { jumpHeld = false; });
 padButton('padB', () => {
   if (!interact(aim())) { padMining = true; pendingStrike = true; }
@@ -4542,27 +4611,9 @@ function updateNetUi() {
 }
 
 // Watak pemain lain: badan berwarna ikut giliran masuk
-function makeAvatar(id, c, h) {
-  const group = new THREE.Group(), inner = new THREE.Group();
-  inner.scale.setScalar(1 / 17);
-  const color = LOOK_COLORS[c];
-  const legs = [-2, 2].map((x) => {
-    const pivot = new THREE.Group();
-    pivot.position.set(x, 12, 0);
-    part(pivot, 3.6, 12, 3.6, 0x5a4a8a, 0, -6, 0);
-    inner.add(pivot);
-    return pivot;
-  });
-  part(inner, 8, 11, 4, color, 0, 17.5, 0);
-  part(inner, 3, 11, 3.6, color, -5.6, 17.5, 0);
-  part(inner, 3, 11, 3.6, color, 5.6, 17.5, 0);
-  part(inner, 8, 8, 8, 0xffd9b3, 0, 27, 0);
-  part(inner, 8.4, 2.4, 8.4, 0x8f566c, 0, 30.4, 0); // rambut
-  addHat(inner, h);
-  part(inner, 1.4, 1.4, 0.5, DARK, -1.8, 27.5, 4.1);
-  part(inner, 1.4, 1.4, 0.5, DARK, 1.8, 27.5, 4.1);
-  part(inner, 3, 0.8, 0.5, 0xff7fbf, 0, 25, 4.1);
-  group.add(inner);
+function makeAvatar(id, c, h, look) {
+  const {group,legs}=buildAvatarModel(c,h,look);
+  if(look.name){const label=new THREE.Sprite(new THREE.SpriteMaterial({map:makeSignTexture(look.name),transparent:true,depthTest:false}));label.scale.set(1.8,0.55,1);label.position.y=2.4;group.add(label);}
   scene.add(group);
   const a = { group, legs, x: 0, y: 0, z: 0, yaw: 0, tx: 0, ty: 0, tz: 0, tyaw: 0, phase: 0, fresh: true };
   avatars.set(id, a);
@@ -4573,6 +4624,7 @@ function removeAvatar(id) {
   const a = avatars.get(id);
   if (!a) return;
   scene.remove(a.group);
+  a.group.traverse(o=>{if(o.isSprite){o.material.map?.dispose();o.material.dispose();}});
   avatars.delete(id);
   updateNetUi();
 }
@@ -4581,9 +4633,10 @@ function onPlayerMsg(m) {
   // Rupa (warna baju, topi) dihantar bersama kedudukan; watak dibina semula kalau berubah
   const c = Number.isInteger(m.c) && m.c >= 0 && m.c < LOOK_COLORS.length ? m.c : (m.id - 1) % LOOK_COLORS.length;
   const h = Number.isInteger(m.h) && m.h >= 0 && m.h < HATS.length ? m.h : 0;
+  const extra=lookExtras(m.look), lookKey=JSON.stringify(extra);
   let a = avatars.get(m.id);
-  if (a && (a.c !== c || a.h !== h)) { removeAvatar(m.id); a = null; }
-  if (!a) { a = makeAvatar(m.id, c, h); a.c = c; a.h = h; award('kawan'); }
+  if (a && (a.c !== c || a.h !== h || a.lookKey !== lookKey)) { removeAvatar(m.id); a = null; }
+  if (!a) { a = makeAvatar(m.id, c, h,extra); a.c = c; a.h = h; a.look=extra; a.lookKey=lookKey; award('kawan'); }
   a.tx = m.x; a.ty = m.y; a.tz = m.z; a.tyaw = m.yaw;
   if (a.fresh) { a.fresh = false; a.x = m.x; a.y = m.y; a.z = m.z; a.yaw = m.yaw; }
 }
@@ -4618,7 +4671,7 @@ function netSend(msg, except) {
   if (net.role === 'host') net.conns.forEach((conn, id) => { if (id !== except && conn.open) conn.send(msg); });
   else if (net.role === 'guest' && net.host && net.host.open) net.host.send(msg);
 }
-const playerMsg = (id) => ({ t: 'p', id, x: round2(player.x), y: round2(player.y), z: round2(player.z), yaw: round2(yaw), c: myLook.c, h: myLook.h });
+const playerMsg = (id) => ({ t: 'p', id, x: round2(player.x), y: round2(player.y), z: round2(player.z), yaw: round2(yaw), c: myLook.c, h: myLook.h, look: lookExtras(myLook) });
 
 function netHost() {
   if (typeof Peer === 'undefined') { setNetStatus('Main bersama tidak tersedia dalam versi ini.'); return; }
@@ -4664,7 +4717,7 @@ function hostData(conn, m) {
     // Tetamu sudah memuat dunia: hantar perubahan terkini dan kedudukan semua pemain
     conn.send({ t: 'edits', you: id, edits: flatEdits(), time: Math.round(dayTime) });
     conn.send(playerMsg(1));
-    avatars.forEach((a, aid) => { if (aid !== id) conn.send({ t: 'p', id: aid, x: a.tx, y: a.ty, z: a.tz, yaw: a.tyaw, c: a.c, h: a.h }); });
+    avatars.forEach((a, aid) => { if (aid !== id) conn.send({ t: 'p', id: aid, x: a.tx, y: a.ty, z: a.tz, yaw: a.tyaw, c: a.c, h: a.h, look: a.look }); });
     showToast('Kawan masuk ke bilik!');
   } else if (m.t === 'b') {
     if (!validEdit(m.i, m.id)) return;
@@ -4673,7 +4726,7 @@ function hostData(conn, m) {
     netSend({ t: 'b', i: m.i, id: m.id }, id);
   } else if (m.t === 'p') {
     if (![m.x, m.y, m.z, m.yaw].every(Number.isFinite)) return;
-    const msg = { t: 'p', id, x: m.x, y: m.y, z: m.z, yaw: m.yaw, c: m.c, h: m.h };
+    const msg = { t: 'p', id, x: m.x, y: m.y, z: m.z, yaw: m.yaw, c: m.c, h: m.h, look: lookExtras(m.look) };
     onPlayerMsg(msg);
     netSend(msg, id);
   } else if (m.t === 'rwin') {
