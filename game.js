@@ -1,7 +1,11 @@
 import * as THREE from './three.module.min.js';
 
 // ---------- Tetapan dunia ----------
-const W = 96, D = 96, H = 48, CHUNK = 16;
+const W = 192, D = 192, H = 48, CHUNK = 16;
+// Dunia asal bersaiz 96 x 96 dan kekal di penjuru (0, 0) dunia baru. Apa saja yang dijana untuk kawasan asal
+// mesti terus guna saiz lama ini supaya dunia lama keluar sama.
+const OW = 96, OD = 96;
+const SPAWN_X = 48.5, SPAWN_Z = 48.5;
 const SAVE_KEY = 'pinkcraft-save-v1';
 const REACH = 8;
 const WALK_SPEED = 4.5, JUMP_SPEED = 8.5, GRAVITY = 26;
@@ -14,7 +18,8 @@ const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, LOG = 4, LEAVES = 5, BRICK = 6, P
   CRYSTAL_ORE = 23, GOLD_ORE = 24, GEM_ORE = 25, CRYSTAL_BLOCK = 26, GOLD_BLOCK = 27, CHEST = 28, SAND_X = 29,
   BED_HEAD = 30, BED_FOOT = 31, SHELF = 32, RUG = 33, PAINT_PINKY = 34, PAINT_RAINBOW = 35, FLOWERS = 36,
   SOFA = 37, TABLE = 38, TV = 39, KITCHEN = 40, WARDROBE = 41, FENCE = 42,
-  STRAW_SPROUT = 43, STRAW_RIPE = 44, CARROT_SPROUT = 45, CARROT_RIPE = 46, FLOWER_SPROUT = 47;
+  STRAW_SPROUT = 43, STRAW_RIPE = 44, CARROT_SPROUT = 45, CARROT_RIPE = 46, FLOWER_SPROUT = 47,
+  SLIDE = 48, WSLIDE = 49, GRASS_G = 50, LEAVES_G = 51;
 // Item yang digugurkan oleh bijih (ditakrif di sini kerana BLOCKS merujuknya)
 const KRISTAL = 113, EMAS = 114, PERMATA = 115;
 // Benih dan hasil kebun (juga dirujuk oleh BLOCKS)
@@ -70,6 +75,12 @@ const BLOCKS = {
   [WARDROBE]: { name: 'Almari', hard: 0.5, tool: 'axe', tiles: [8, 8, 49] },
   [FENCE]: { name: 'Pagar', hard: 0.5, tool: 'axe', tiles: [50, 50, 50], transparent: true },
   // Tanaman: boleh dilalui; grows = jadi block ini bila matang; drops = [item, minimum, maksimum]
+  // slide: menolak pemain ke arah block gelongsor di sebelah yang setingkat lebih rendah
+  [SLIDE]: { name: 'Gelongsor', hard: 0.8, tiles: [56, 23, 23], slide: true },
+  [WSLIDE]: { name: 'Gelongsor Air', hard: 0.8, tiles: [57, 24, 24], slide: true },
+  // Alam hijau di tanah baru
+  [GRASS_G]: { name: 'Rumput Hijau', hard: 0.6, tool: 'shovel', tiles: [58, 2, 59] },
+  [LEAVES_G]: { name: 'Daun Hijau', hard: 0.25, tiles: [21, 21, 21] },
   [STRAW_SPROUT]: { name: 'Anak Strawberi', hard: 0.25, tiles: [51, 51, 51], transparent: true, passable: true, grows: STRAW_RIPE, drops: [[SEED_STRAW, 1, 1]] },
   [STRAW_RIPE]: { name: 'Pokok Strawberi', hard: 0.25, tiles: [52, 52, 52], transparent: true, passable: true, harvest: true, drops: [[STRAWBERRY, 2, 3], [SEED_STRAW, 1, 2]] },
   [CARROT_SPROUT]: { name: 'Anak Lobak', hard: 0.25, tiles: [53, 53, 53], transparent: true, passable: true, grows: CARROT_RIPE, drops: [[SEED_CARROT, 1, 1]] },
@@ -400,6 +411,13 @@ const TILES = [
     if (y === 11 && x >= 5 && x <= 10) return '5fd08a';
     return '00000000';
   },
+  // 56 gelongsor: kuning licin dengan jalur kilat
+  (x, y) => (x < 2 || x > 13 ? 'ff9a3c' : (x + y) % 8 < 2 ? 'fff7c2' : 'ffe14f'),
+  // 57 gelongsor air: biru dengan riak putih
+  (x, y) => (x < 2 || x > 13 ? '4a90e0' : (x + y * 2) % 7 === 0 ? 'ffffff' : '8fd8ff'),
+  // 58 rumput hijau (atas), 59 rumput hijau (sisi, di atas tanah)
+  (x, y) => pick(x, y, 18, ['6fcf6f', '6fcf6f', '82d97f', '5cc463']),
+  (x, y) => (y < 3 + Math.floor(hash(x, 0, 19) * 3) ? pick(x, y, 18, ['6fcf6f', '6fcf6f', '82d97f', '5cc463']) : dirt(x, y)),
 ];
 const ATLAS_ROWS = 16; // atlas 4 lajur x 16 baris petak 16x16
 
@@ -428,6 +446,13 @@ function makeAtlas() {
 
 // ---------- Simpanan ----------
 let saveWarning = '';
+// Simpanan sebelum dunia dibesarkan mengira indeks block dengan saiz 96 x 96
+function widenEdits(list) {
+  for (let i = 0; i < list.length; i += 2) {
+    const old = list[i], x = old % OW, z = Math.floor(old / OW) % OD, y = Math.floor(old / (OW * OD));
+    list[i] = x + z * W + y * W * D;
+  }
+}
 function loadSave() {
   try {
     const s = JSON.parse(localStorage.getItem(SAVE_KEY));
@@ -438,6 +463,7 @@ function loadSave() {
       if (!Number.isInteger(index) || index < 0 || index >= W * D * H || !Number.isInteger(id) || (id !== AIR && !BLOCKS[id])) throw new Error('Block tidak sah');
     }
     if (s.player && (!Array.isArray(s.player) || s.player.length !== 5 || !s.player.every(Number.isFinite))) s.player = null;
+    if (s.size !== 2) widenEdits(s.edits);
     return s;
   } catch (e) { saveWarning = 'Simpanan tidak dapat dibaca. Dunia sementara dibuka; simpanan asal tidak akan ditindih.'; }
   return null;
@@ -454,6 +480,7 @@ function loadGuest() {
       const index = s.edits[i], id = s.edits[i + 1];
       if (!Number.isInteger(index) || index < 0 || index >= W * D * H || !Number.isInteger(id) || (id !== AIR && !BLOCKS[id])) return null;
     }
+    if (s.size !== 2) widenEdits(s.edits); // hos masih guna versi lama
     return {
       code: g.code,
       world: { seed: s.seed, gen: s.gen === 2 ? 2 : 1, base: s.base === 1 ? 1 : 0, edits: s.edits, time: Number.isFinite(s.time) ? s.time : 0, player: null, houses: s.houses, housesV: s.housesV, parks: s.parks },
@@ -480,7 +507,7 @@ function writeSave() {
   edits.forEach((id, i) => flat.push(i, id));
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
-      seed: save.seed, gen: pendingUpgrade ? 2 : GEN, base: pendingUpgrade || UPGRADED ? 1 : 0, fix: pendingUpgrade ? 1 : 0, edits: flat,
+      seed: save.seed, size: 2, gen: pendingUpgrade ? 2 : GEN, base: pendingUpgrade || UPGRADED ? 1 : 0, fix: pendingUpgrade ? 1 : 0, edits: flat,
       player: [player.x, player.y, player.z, yaw, pitch], slot: selected,
       houses: houseSites, housesV: houseVersion, parks: parkSites,
       best, stickers: [...earned], stats, look: myLook, music: musicOn ? 1 : 0, gift: 2,
@@ -516,6 +543,13 @@ const SEA_LEVEL = 13;
 const FIELD_ZONE = { x0: 60, x1: 84, z0: 40, z1: 56, y: 17 }; // y = aras block paling atas
 const PLAY_ZONE = { x0: 40, x1: 56, z0: 66, z1: 82, y: 17 };
 const ZONES = [FIELD_ZONE, PLAY_ZONE];
+// Taman Tema Air terletak di tanah baru sebelah timur, jadi ia dibina dalam semua dunia
+const WATER_ZONE = { x0: 108, x1: 150, z0: 20, z1: 62, y: 17 };
+const NEW_ZONES = [WATER_ZONE];
+const ALL_ZONES = ZONES.concat(NEW_ZONES);
+const inOldWorld = (x, z) => x < OW && z < OD;
+// Tema tanah baru: pink dan hijau alam bersama. Dunia asal kekal pink.
+const greenAt = (x, z, seed) => !inOldWorld(x, z) && valueNoise(x / 34, z / 34, seed + 5) > 0.47;
 const zoneDist = (zn, x, z) => Math.max(zn.x0 - x, x - zn.x1, zn.z0 - z, z - zn.z1, 0);
 function terrainHeight(x, z, seed, gen) {
   let h = 12 + valueNoise(x / 28, z / 28, seed) * 10 + valueNoise(x / 10, z / 10, seed + 1) * 4;
@@ -529,6 +563,10 @@ function terrainHeight(x, z, seed, gen) {
       h = h * (1 - w) + (zn.y + 0.5) * w;
     }
   }
+  for (const zn of NEW_ZONES) {
+    const w = Math.max(0, 1 - zoneDist(zn, x, z) / 5);
+    h = h * (1 - w) + (zn.y + 0.5) * w;
+  }
   return Math.floor(h);
 }
 function fillBox(x0, y0, z0, x1, y1, z1, id) {
@@ -539,47 +577,127 @@ function fillBox(x0, y0, z0, x1, y1, z1, id) {
 }
 // Lajur (x, z) yang berubah semasa naik taraf dunia lama
 const changedCols = new Uint8Array(W * D);
-function generateWorld(seed) {
-  const base = UPGRADED ? 1 : GEN; // rupa bumi asas
-  for (let z = 0; z < D; z++) {
-    for (let x = 0; x < W; x++) {
-      const h = terrainHeight(x, z, seed, base);
-      const beach = base === 2 && x < 40 && h <= SEA_LEVEL + 1;
-      for (let y = 0; y <= h; y++) {
-        world[idx(x, y, z)] = y === 0 ? BEDROCK : y < h - 3 ? STONE : beach ? SAND : y < h ? DIRT : GRASS;
+// Pokok sakura. Bilangan panggilan rnd mesti kekal sama supaya pokok dunia lama tak berpindah.
+function sakuraTree(x, y, z, rnd, leaf = LEAVES) {
+  const th = 4 + Math.floor(rnd() * 2);
+  for (let dy = th - 2; dy <= th + 1; dy++) {
+    const r = dy < th ? 2 : 1;
+    for (let dz = -r; dz <= r; dz++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.abs(dx) === r && Math.abs(dz) === r && rnd() < 0.6) continue;
+        const j = idx(x + dx, y + dy, z + dz);
+        if (world[j] === AIR) world[j] = leaf;
       }
-      if (base === 2) for (let y = h + 1; y <= SEA_LEVEL; y++) world[idx(x, y, z)] = WATER;
     }
   }
+  for (let dy = 0; dy < th; dy++) world[idx(x, y + dy, z)] = LOG;
+}
+function generateWorld(seed) {
+  const base = UPGRADED ? 1 : GEN; // rupa bumi asas kawasan asal
+  for (let z = 0; z < D; z++) {
+    for (let x = 0; x < W; x++) {
+      // Dunia lama yang dinaik taraf: kawasan asal dijana cara lama dulu; tanah baru terus dijana cara baru
+      const gen = inOldWorld(x, z) ? base : GEN;
+      const h = terrainHeight(x, z, seed, gen);
+      const beach = gen === 2 && x < 40 && h <= SEA_LEVEL + 1;
+      const turf = greenAt(x, z, seed) ? GRASS_G : GRASS;
+      for (let y = 0; y <= h; y++) {
+        world[idx(x, y, z)] = y === 0 ? BEDROCK : y < h - 3 ? STONE : beach ? SAND : y < h ? DIRT : turf;
+      }
+      if (gen === 2) for (let y = h + 1; y <= SEA_LEVEL; y++) world[idx(x, y, z)] = WATER;
+    }
+  }
+  // Pokok kawasan asal (sama macam sebelum dunia dibesarkan)
   const rnd = mulberry32(seed);
   for (let i = 0; i < 70; i++) {
-    const x = 3 + Math.floor(rnd() * (W - 6)), z = 3 + Math.floor(rnd() * (D - 6));
+    const x = 3 + Math.floor(rnd() * (OW - 6)), z = 3 + Math.floor(rnd() * (OD - 6));
     if (base === 2 && ZONES.some((zn) => zoneDist(zn, x, z) < 4)) continue;
     const y = surfaceY(x, z);
     if (world[idx(x, y - 1, z)] !== GRASS) continue;
-    const th = 4 + Math.floor(rnd() * 2);
-    for (let dy = th - 2; dy <= th + 1; dy++) {
-      const r = dy < th ? 2 : 1;
-      for (let dz = -r; dz <= r; dz++) {
-        for (let dx = -r; dx <= r; dx++) {
-          if (Math.abs(dx) === r && Math.abs(dz) === r && rnd() < 0.6) continue;
-          const j = idx(x + dx, y + dy, z + dz);
-          if (world[j] === AIR) world[j] = LEAVES;
-        }
-      }
-    }
-    for (let dy = 0; dy < th; dy++) world[idx(x, y + dy, z)] = LOG;
+    sakuraTree(x, y, z, rnd);
+  }
+  // Pokok tanah baru
+  const rndNew = mulberry32(seed + 61);
+  for (let i = 0; i < 230; i++) {
+    const x = 3 + Math.floor(rndNew() * (W - 6)), z = 3 + Math.floor(rndNew() * (D - 6));
+    if ((x < OW + 3 && z < OD + 3) || ALL_ZONES.some((zn) => zoneDist(zn, x, z) < 4)) continue;
+    const y = surfaceY(x, z);
+    const below = world[idx(x, y - 1, z)];
+    if (y > H - 10 || (below !== GRASS && below !== GRASS_G)) continue;
+    sakuraTree(x, y, z, rndNew, below === GRASS_G ? LEAVES_G : LEAVES); // daun hijau di padang hijau
+  }
+  // Bunga liar di padang hijau
+  for (let i = 0; i < 260; i++) {
+    const x = 3 + Math.floor(rndNew() * (W - 6)), z = 3 + Math.floor(rndNew() * (D - 6)), y = surfaceY(x, z);
+    if (y < H - 2 && world[idx(x, y - 1, z)] === GRASS_G && !ALL_ZONES.some((zn) => zoneDist(zn, x, z) < 2)) world[idx(x, y, z)] = FLOWERS;
   }
   if (UPGRADED) upgradeTerrain(seed);
   if (GEN === 2) buildLandmarks(seed);
+  buildWaterPark();
   generateOres(seed);
   placeChests(seed);
+}
+// Taman Tema Air: kolam besar, kolam kanak-kanak dengan air pancut, menara dengan dua gelongsor ke dalam kolam,
+// papan anjal, payung, dan pintu gerbang di sebelah selatan
+function buildWaterPark() {
+  const zn = WATER_ZONE, f = zn.y;
+  fillBox(zn.x0, f + 1, zn.z0, zn.x1, f + 20, zn.z1, AIR);
+  for (let z = zn.z0; z <= zn.z1; z++) for (let x = zn.x0; x <= zn.x1; x++) world[idx(x, f, z)] = (x + z) % 6 === 0 ? BLUE : LINE;
+  // Kolam besar (dua block dalam) dan kolam kanak-kanak (satu block, berlantai pelangi)
+  fillBox(114, f - 2, 40, 132, f - 2, 54, BLUE);
+  fillBox(114, f - 1, 40, 132, f, 54, WATER);
+  fillBox(114, f - 1, 26, 122, f - 1, 34, RAINBOW);
+  fillBox(114, f, 26, 122, f, 34, WATER);
+  // Air pancut di tengah kolam kanak-kanak
+  fillBox(118, f, 30, 118, f + 3, 30, LINE);
+  for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) if (dx || dz) world[idx(118 + dx, f + 3, 30 + dz)] = WATER;
+  world[idx(118, f + 4, 30)] = GLOW;
+  // Menara gelongsor: tangga naik, pelantar berbumbung, dua lorong gelongsor turun ke kolam
+  for (let i = 1; i <= 10; i++) fillBox(132 + i, f + 1, 42, 132 + i, f + i, 43, LINE);
+  fillBox(143, f + 10, 42, 146, f + 10, 50, LINE);
+  for (const [x, z] of [[143, 42], [146, 42], [143, 50], [146, 50]]) {
+    fillBox(x, f + 1, z, x, f + 9, z, BLUE);
+    fillBox(x, f + 11, z, x, f + 13, z, BLUE);
+  }
+  fillBox(143, f + 14, 42, 146, f + 14, 50, RAINBOW);
+  fillBox(146, f + 11, 43, 146, f + 11, 49, GLASS);
+  fillBox(144, f + 11, 50, 145, f + 11, 50, GLASS);
+  fillBox(144, f + 11, 42, 145, f + 11, 42, GLASS);
+  for (let i = 0; i < 10; i++) {
+    const x = 142 - i, top = f + 9 - i;
+    for (const [z, id] of [[46, SLIDE], [48, WSLIDE]]) {
+      fillBox(x, f + 1, z, x, top - 1, z, LINE);
+      world[idx(x, top, z)] = id;
+    }
+    for (const z of [45, 47, 49]) fillBox(x, f + 1, z, x, top + 1, z, LINE); // rel di kiri kanan lorong
+  }
+  // Papan anjal di tepi utara kolam besar
+  fillBox(121, f + 1, 37, 125, f + 3, 38, LINE);
+  fillBox(121, f + 1, 39, 125, f + 2, 39, LINE);
+  fillBox(121, f + 3, 39, 125, f + 3, 39, TRAMP);
+  fillBox(126, f + 1, 37, 126, f + 2, 38, LINE);
+  fillBox(127, f + 1, 37, 127, f + 1, 38, LINE);
+  // Payung dan tuala di tepi barat
+  for (const z of [24, 36, 46, 56]) {
+    fillBox(111, f + 1, z, 111, f + 2, z, LINE);
+    fillBox(110, f + 3, z - 1, 112, f + 3, z + 1, RAINBOW);
+    world[idx(110, f, z + 2)] = RUG;
+    world[idx(112, f, z + 2)] = RUG;
+  }
+  // Pintu gerbang dan lampu penjuru
+  fillBox(127, f + 1, 62, 127, f + 4, 62, BLUE);
+  fillBox(131, f + 1, 62, 131, f + 4, 62, BLUE);
+  fillBox(127, f + 5, 62, 131, f + 5, 62, RAINBOW);
+  for (const [x, z] of [[zn.x0, zn.z0], [zn.x1, zn.z0], [zn.x0, zn.z1], [zn.x1, zn.z1]]) {
+    fillBox(x, f + 1, z, x, f + 3, z, BLUE);
+    world[idx(x, f + 4, z)] = GLOW;
+  }
 }
 // Naik taraf: bina semula hanya lajur yang berbeza antara dunia lama dan baru (laut, pantai, padang, taman).
 // Lajur lain kekal sama, jadi pokok dan binaan pemain di situ tak terusik.
 function upgradeTerrain(seed) {
-  for (let z = 0; z < D; z++) {
-    for (let x = 0; x < W; x++) {
+  for (let z = 0; z < OD; z++) {
+    for (let x = 0; x < OW; x++) {
       const h = terrainHeight(x, z, seed, 2);
       const beach = x < 40 && h <= SEA_LEVEL + 1;
       if (h === terrainHeight(x, z, seed, 1) && !beach) continue;
@@ -592,10 +710,11 @@ function upgradeTerrain(seed) {
   }
 }
 // Urat bijih: berjalan rawak dari satu titik, menggantikan batu sahaja
-function placeVeins(rnd, id, count, yMax, size) {
+function placeVeins(rnd, id, count, yMax, size, wide) {
   for (let i = 0; i < count; i++) {
-    let x = 1 + Math.floor(rnd() * (W - 2)), z = 1 + Math.floor(rnd() * (D - 2)), y = 1 + Math.floor(rnd() * yMax);
-    for (let j = 0; j < size; j++) {
+    let x = 1 + Math.floor(rnd() * ((wide ? W : OW) - 2)), z = 1 + Math.floor(rnd() * ((wide ? D : OD) - 2)), y = 1 + Math.floor(rnd() * yMax);
+    const skip = wide && inOldWorld(x, z); // urat tambahan hanya bermula di tanah baru
+    for (let j = 0; j < size && !skip; j++) {
       if (inBounds(x, y, z) && world[idx(x, y, z)] === STONE) world[idx(x, y, z)] = id;
       const dir = Math.floor(rnd() * 6);
       if (dir === 0) x++; else if (dir === 1) x--; else if (dir === 2) y++; else if (dir === 3) y--; else if (dir === 4) z++; else z--;
@@ -608,24 +727,38 @@ function generateOres(seed) {
   placeVeins(rnd, CRYSTAL_ORE, 110, 20, 5);
   placeVeins(rnd, GOLD_ORE, 55, 12, 4);
   placeVeins(rnd, GEM_ORE, 22, 6, 3);
+  const rndNew = mulberry32(seed + 71);
+  placeVeins(rndNew, CRYSTAL_ORE, 440, 20, 5, true);
+  placeVeins(rndNew, GOLD_ORE, 220, 12, 4, true);
+  placeVeins(rndNew, GEM_ORE, 90, 6, 3, true);
 }
 function placeChests(seed) {
   const rnd = mulberry32(seed + 51);
   // Peti di atas tanah: satu berhampiran tempat mula, selebihnya bertaburan
   for (let i = 0, made = 0; i < 300 && made < 9; i++) {
     const near = made === 0;
-    const x = near ? Math.floor(W / 2 - 8 + rnd() * 16) : 3 + Math.floor(rnd() * (W - 6));
-    const z = near ? Math.floor(D / 2 - 8 + rnd() * 16) : 3 + Math.floor(rnd() * (D - 6));
+    const x = near ? Math.floor(OW / 2 - 8 + rnd() * 16) : 3 + Math.floor(rnd() * (OW - 6));
+    const z = near ? Math.floor(OD / 2 - 8 + rnd() * 16) : 3 + Math.floor(rnd() * (OD - 6));
     if (GEN === 2 && ZONES.some((zn) => zoneDist(zn, x, z) < 2)) continue;
     const y = surfaceY(x, z), below = world[idx(x, y - 1, z)];
     if (y >= H - 1 || (below !== GRASS && below !== SAND)) continue;
     world[idx(x, y, z)] = CHEST;
     made++;
   }
+  // Peti di tanah baru
+  const rndNew = mulberry32(seed + 81);
+  for (let i = 0, made = 0; i < 900 && made < 18; i++) {
+    const x = 3 + Math.floor(rndNew() * (W - 6)), z = 3 + Math.floor(rndNew() * (D - 6));
+    if (inOldWorld(x, z) || ALL_ZONES.some((zn) => zoneDist(zn, x, z) < 2)) continue;
+    const y = surfaceY(x, z), below = world[idx(x, y - 1, z)];
+    if (y >= H - 1 || (below !== GRASS && below !== GRASS_G && below !== SAND)) continue;
+    world[idx(x, y, z)] = CHEST;
+    made++;
+  }
   // Peti tertanam di pantai: tanda X pada pasir, peti dua block di bawahnya
   if (GEN !== 2) return;
   for (let i = 0, made = 0; i < 300 && made < 4; i++) {
-    const x = 18 + Math.floor(rnd() * 20), z = 5 + Math.floor(rnd() * (D - 10)), y = surfaceY(x, z);
+    const x = 18 + Math.floor(rnd() * 20), z = 5 + Math.floor(rnd() * (OD - 10)), y = surfaceY(x, z);
     if (y < 5 || world[idx(x, y - 1, z)] !== SAND) continue;
     world[idx(x, y - 1, z)] = SAND_X;
     world[idx(x, y - 3, z)] = CHEST;
@@ -634,11 +767,27 @@ function placeChests(seed) {
 }
 function buildLandmarks(seed) {
   const rnd = mulberry32(seed + 21);
+  // Pokok kelapa di pantai tanah baru (selatan dunia asal)
+  const rndNew = mulberry32(seed + 91);
+  for (let i = 0, made = 0; i < 120 && made < 12; i++) {
+    const x = 18 + Math.floor(rndNew() * 20), z = OD + 4 + Math.floor(rndNew() * (D - OD - 10)), tall = rndNew();
+    const y = surfaceY(x, z);
+    if (world[idx(x, y - 1, z)] !== SAND) continue;
+    made++;
+    const top = y + 4 + Math.floor(tall * 2);
+    fillBox(x, y, z, x, top, z, LOG);
+    world[idx(x, top + 1, z)] = PALM;
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      world[idx(x + dx, top + 1, z + dz)] = PALM;
+      world[idx(x + dx * 2, top + 1, z + dz * 2)] = PALM;
+      world[idx(x + dx * 3, top, z + dz * 3)] = PALM;
+    }
+  }
 
   // --- Pantai: pokok kelapa dan payung
   let palms = 0, umbrellas = 0;
   for (let i = 0; i < 80; i++) {
-    const x = 18 + Math.floor(rnd() * 20), z = 5 + Math.floor(rnd() * (D - 10)), kind = rnd(), tall = rnd();
+    const x = 18 + Math.floor(rnd() * 20), z = 5 + Math.floor(rnd() * (OD - 10)), kind = rnd(), tall = rnd();
     const y = surfaceY(x, z);
     if (world[idx(x, y - 1, z)] !== SAND) continue;
     if (kind < 0.7 && palms < 12) {
@@ -687,6 +836,7 @@ function buildLandmarks(seed) {
   for (let i = 0; i < 5; i++) {
     fillBox(42 + i, py + 1, 75, 42 + i, py + 1 + i, 76, RAINBOW);
     fillBox(54 - i, py + 1, 75, 54 - i, py + 1 + i, 76, i % 2 ? YELLOW : BLUE);
+    fillBox(54 - i, py + 1 + i, 75, 54 - i, py + 1 + i, 76, SLIDE); // sebelah turun jadi gelongsor
   }
   fillBox(47, py + 1, 75, 49, py + 5, 76, RAINBOW);
   fillBox(47, py + 1, 71, 47, py + 3, 71, YELLOW);
@@ -743,12 +893,12 @@ function findHouseSite(oldSites) {
       let g = -1;
       for (let y = H - 1; y >= 0; y--) {
         const id = world[idx(x, y, z)];
-        if (id === AIR || id === LEAVES || id === LOG || id === PALM) continue;
+        if (id === AIR || id === LEAVES || id === LEAVES_G || id === LOG || id === PALM) continue;
         g = id === WATER ? -1 : y;
         break;
       }
       ground[x + z * W] = g;
-      if (g < 0 || x < 42 || ZONES.some((zn) => zoneDist(zn, x, z) < 6)) blocked[x + z * W] = 1;
+      if (g < 0 || x < 42 || ALL_ZONES.some((zn) => zoneDist(zn, x, z) < 6)) blocked[x + z * W] = 1;
     }
   }
   for (const s of oldSites) {
@@ -760,8 +910,8 @@ function findHouseSite(oldSites) {
     for (let x0 = 44; x0 < W - span - 3; x0++) {
       const xa = x0 - 1, xb = x0 + span, za = z0 - YARD_BACK, zb = z0 + HD - 1 + YARD_FRONT;
       // Jangan bina di atas tempat mula pemain
-      if (W / 2 > xa - 3 && W / 2 < xb + 3 && D / 2 > za - 3 && D / 2 < zb + 3) continue;
-      const dist = Math.hypot((xa + xb) / 2 - W / 2, (za + zb) / 2 - D / 2);
+      if (SPAWN_X > xa - 3 && SPAWN_X < xb + 3 && SPAWN_Z > za - 3 && SPAWN_Z < zb + 3) continue;
+      const dist = Math.hypot((xa + xb) / 2 - SPAWN_X, (za + zb) / 2 - SPAWN_Z);
       if (dist > 50) continue;
       let lo = 99, hi = -1, sum = 0, count = 0, bad = false;
       for (let z = za; z <= zb && !bad; z++) {
@@ -790,7 +940,7 @@ function levelPlot(x0, f, z0) {
       put(x, f, z, GRASS);
       for (let y = f - 6; y < f; y++) {
         const id = getBlock(x, y, z);
-        if (id === AIR || id === WATER || id === LEAVES || id === LOG) put(x, y, z, DIRT);
+        if (id === AIR || id === WATER || id === LEAVES || id === LEAVES_G || id === LOG) put(x, y, z, DIRT);
       }
     }
   }
@@ -917,12 +1067,12 @@ function findPlot(w, d, tx, tz, maxF) {
       let g = -1;
       for (let y = H - 1; y >= 0; y--) {
         const id = world[idx(x, y, z)];
-        if (id === AIR || id === LEAVES || id === LOG || id === PALM) continue;
+        if (id === AIR || id === LEAVES || id === LEAVES_G || id === LOG || id === PALM) continue;
         g = id === WATER ? -1 : y;
         break;
       }
       ground[x + z * W] = g;
-      if (g < 0 || x < 42 || ZONES.some((zn) => zoneDist(zn, x, z) < 6)) blocked[x + z * W] = 1;
+      if (g < 0 || x < 42 || ALL_ZONES.some((zn) => zoneDist(zn, x, z) < 6)) blocked[x + z * W] = 1;
     }
   }
   edits.forEach((id, i) => { blocked[i % (W * D)] = 1; });
@@ -930,7 +1080,7 @@ function findPlot(w, d, tx, tz, maxF) {
   for (let z0 = 4; z0 < D - d - 5; z0++) {
     for (let x0 = 44; x0 < W - w - 4; x0++) {
       const xa = x0 - 2, xb = x0 + w + 1, za = z0 - 2, zb = z0 + d + 3;
-      if (W / 2 > xa - 2 && W / 2 < xb + 2 && D / 2 > za - 2 && D / 2 < zb + 2) continue; // bukan di atas tempat mula
+      if (SPAWN_X > xa - 2 && SPAWN_X < xb + 2 && SPAWN_Z > za - 2 && SPAWN_Z < zb + 2) continue; // bukan di atas tempat mula
       let lo = 99, hi = -1, sum = 0, count = 0, bad = false;
       for (let z = za; z <= zb && !bad; z++) {
         for (let x = xa; x <= xb; x++) {
@@ -958,7 +1108,7 @@ function levelArea(xa, za, xb, zb, f, clearHeight) {
       put(x, f, z, GRASS);
       for (let y = f - 6; y < f; y++) {
         const id = getBlock(x, y, z);
-        if (id === AIR || id === WATER || id === LEAVES || id === LOG) put(x, y, z, DIRT);
+        if (id === AIR || id === WATER || id === LEAVES || id === LEAVES_G || id === LOG) put(x, y, z, DIRT);
       }
     }
   }
@@ -1057,7 +1207,7 @@ if (save.parks && typeof save.parks === 'object') {
   // Sasaran: tengah-tengah dua rumah, atau tempat mula kalau rumah tiada
   const near = houseSites.length && houseVersion === HOUSE_V
     ? [houseSites[0][0] + HW + HOUSE_GAP / 2, houseSites[0][2] + HD / 2]
-    : [W / 2, D / 2];
+    : [SPAWN_X, SPAWN_Z];
   const pen = findPlot(PEN_W, PEN_D, near[0], near[1], H - 14);
   if (pen) { buildPen(pen.x0, pen.f, pen.z0); parkSites.pen = [pen.x0, pen.f, pen.z0]; }
   const tower = findPlot(TOWER_SIZE, TOWER_SIZE, near[0], near[1], H - 24);
@@ -1263,9 +1413,9 @@ const clouds = [];
 {
   const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, fog: false });
   const rnd = mulberry32(save.seed + 99);
-  for (let i = 0; i < 14; i++) {
+  for (let i = 0; i < 34; i++) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(8 + rnd() * 14, 2, 6 + rnd() * 8), mat);
-    m.position.set(rnd() * 260 - 80, 62 + rnd() * 8, rnd() * 260 - 80);
+    m.position.set(rnd() * (W + 160) - 80, 62 + rnd() * 8, rnd() * (D + 160) - 80);
     scene.add(m);
     clouds.push(m);
   }
@@ -1468,10 +1618,10 @@ function moveEntity(e, dt) {
 }
 
 // ---------- Pemain ----------
-const player = { x: W / 2 + 0.5, y: 0, z: D / 2 + 0.5, vx: 0, vy: 0, vz: 0, hw: 0.3, h: 1.8, onGround: false };
+const player = { x: SPAWN_X, y: 0, z: SPAWN_Z, vx: 0, vy: 0, vz: 0, hw: 0.3, h: 1.8, onGround: false };
 let yaw = 0, pitch = -0.15;
 function respawn() {
-  player.x = W / 2 + 0.5; player.z = D / 2 + 0.5;
+  player.x = SPAWN_X; player.z = SPAWN_Z;
   player.y = surfaceY(Math.floor(player.x), Math.floor(player.z));
   player.vy = 0;
 }
@@ -1487,6 +1637,30 @@ const joy = { x: 0, y: 0 };
 let jumpHeld = false;
 let playing = false;
 
+// Gelongsor: block gelongsor di bawah kaki menolak pemain ke arah block gelongsor jiran yang setingkat lebih rendah
+let slideDir = null, slideTime = 0;
+function slidePush(dt) {
+  const bx = Math.floor(player.x), by = Math.floor(player.y - 0.05), bz = Math.floor(player.z);
+  const under = BLOCKS[getBlock(bx, by, bz)];
+  if (player.onGround && under && under.slide) {
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const lower = BLOCKS[getBlock(bx + dx, by - 1, bz + dz)];
+      if (lower && lower.slide && getBlock(bx + dx, by, bz + dz) === AIR) {
+        slideDir = [dx, dz];
+        slideTime = 0.6; // momentum kekal sekejap semasa melayang antara anak tangga dan di hujung gelongsor
+        break;
+      }
+    }
+  }
+  if (!slideDir || slideTime <= 0) { slideDir = null; return; }
+  slideTime -= dt;
+  player.vx = slideDir[0] * 7.5;
+  player.vz = slideDir[1] * 7.5;
+  // Kekal di tengah lorong supaya tak tersangkut pada rel
+  const pull = Math.min(1, dt * 8);
+  if (slideDir[0]) player.z += (Math.floor(player.z) + 0.5 - player.z) * pull;
+  else player.x += (Math.floor(player.x) + 0.5 - player.x) * pull;
+}
 function updatePlayer(dt) {
   saveDirty = true;
   let f = -joy.y, s = joy.x;
@@ -1503,6 +1677,7 @@ function updatePlayer(dt) {
   if ((jumpHeld || keys.Space) && player.onGround) { player.vy = JUMP_SPEED; exhaust += 0.03; }
   if ((jumpHeld || keys.Space) && player.inWater) player.vy = 3.2; // berenang naik
 
+  slidePush(dt);
   const px0 = player.x, pz0 = player.z;
   const blocked = moveEntity(player, dt);
   updateStats(dt, Math.hypot(player.x - px0, player.z - pz0));
@@ -1647,7 +1822,7 @@ function spawnPinky(x, z, y, tame) {
 {
   const rnd = mulberry32(save.seed + 7);
   for (let i = 0; i < 10; i++) {
-    const x = Math.floor(W / 2 + (rnd() - 0.5) * 44), z = Math.floor(D / 2 + (rnd() - 0.5) * 44);
+    const x = Math.floor(OW / 2 + (rnd() - 0.5) * 44), z = Math.floor(OD / 2 + (rnd() - 0.5) * 44);
     spawnPinky(x, z);
   }
   // Pinky jinak dari simpanan
@@ -1954,7 +2129,7 @@ function breakBlock(hit) {
       spawnDrop(hit.x, hit.y, hit.z, def.drop || hit.id);
     }
     // Rumput kadang-kadang menyimpan benih
-    if (hit.id === GRASS && Math.random() < 0.15) spawnDrop(hit.x, hit.y, hit.z, [SEED_STRAW, SEED_CARROT, SEED_FLOWER][Math.floor(Math.random() * 3)]);
+    if ((hit.id === GRASS || hit.id === GRASS_G) && Math.random() < 0.15) spawnDrop(hit.x, hit.y, hit.z, [SEED_STRAW, SEED_CARROT, SEED_FLOWER][Math.floor(Math.random() * 3)]);
     // Bunga sakura kadang-kadang gugurkan epal
     if (hit.id === LEAVES && Math.random() < 0.2) spawnDrop(hit.x, hit.y, hit.z, APPLE);
     exhaust += 0.03;
@@ -2157,9 +2332,11 @@ function spawnCritter(kind, x, y, z, tame) {
 }
 {
   const rnd = mulberry32(save.seed + 33);
-  const spawnMany = (count, kind, fits, lift) => {
-    for (let i = 0, made = 0; i < 400 && made < count; i++) {
-      const x = 2 + Math.floor(rnd() * (W - 4)), z = 2 + Math.floor(rnd() * (D - 4)), y = surfaceY(x, z);
+  // wide = false: kawasan asal (taburan sama macam dulu); wide = true: tanah baru sahaja
+  const spawnMany = (count, kind, fits, lift, wide) => {
+    for (let i = 0, made = 0; i < (wide ? 1600 : 400) && made < count; i++) {
+      const x = 2 + Math.floor(rnd() * ((wide ? W : OW) - 4)), z = 2 + Math.floor(rnd() * ((wide ? D : OD) - 4)), y = surfaceY(x, z);
+      if (wide && inOldWorld(x, z)) continue;
       if (y < 3 || !fits(world[idx(x, y - 1, z)], x, y, z)) continue;
       spawnCritter(kind, x + 0.5, y + lift, z + 0.5);
       made++;
@@ -2170,6 +2347,11 @@ function spawnCritter(kind, x, y, z, tame) {
   spawnMany(12, 'butterfly', (below) => below === GRASS || below === LEAVES, 1.5);
   spawnMany(6, 'crab', (below) => below === SAND, 0);
   spawnMany(10, 'fish', (below, x, y, z) => below === WATER && world[idx(x, y - 2, z)] === WATER, -1.5);
+  spawnMany(16, 'bunny', (below) => below === GRASS || below === GRASS_G, 0, true);
+  spawnMany(16, 'chick', (below) => below === GRASS || below === GRASS_G, 0, true);
+  spawnMany(24, 'butterfly', (below) => below === GRASS || below === GRASS_G || below === LEAVES || below === LEAVES_G || below === FLOWERS, 1.5, true);
+  spawnMany(8, 'crab', (below) => below === SAND, 0, true);
+  spawnMany(16, 'fish', (below, x, y, z) => below === WATER && world[idx(x, y - 2, z)] === WATER, -1.5, true);
 }
 // Haiwan jinak dari simpanan: [jenis, x, y, z]
 const savedPets = Array.isArray(save.petsC)
@@ -2324,6 +2506,7 @@ function addSign(text, w, h, x, y, z) {
 }
 // Di palang pintu gerbang kandang, dan di atas pintu menara
 if (parkSites.pen) addSign('Kandang Pinky', 3.2, 1, parkSites.pen[0] + 5.5, parkSites.pen[1] + 4.5, parkSites.pen[2] + PEN_D + 0.04);
+addSign('Taman Tema Air', 4.6, 1.44, 129.5, WATER_ZONE.y + 5.5, WATER_ZONE.z1 + 1.04);
 if (parkSites.tower) addSign('Menara Tinjau', 3.2, 1, parkSites.tower[0] + 2.5, parkSites.tower[1] + 3.8, parkSites.tower[2] + TOWER_SIZE + 0.04);
 
 // ---------- Bola sepak ----------
@@ -3292,7 +3475,7 @@ const sprouts = new Set();
 edits.forEach((id, i) => { if (id && BLOCKS[id].grows) sprouts.add(i); });
 growHook = (i, id) => { if (id && BLOCKS[id].grows) sprouts.add(i); else sprouts.delete(i); };
 function plantSeed(hit) {
-  const soil = hit.id === GRASS || hit.id === DIRT || hit.id === FIELD;
+  const soil = hit.id === GRASS || hit.id === GRASS_G || hit.id === DIRT || hit.id === FIELD;
   if (!soil || hit.face[1] !== 1 || getBlock(hit.x, hit.y + 1, hit.z) !== AIR || hit.y + 1 >= H) {
     showToast('Tanam di atas rumput atau tanah');
     return;
@@ -3402,7 +3585,7 @@ function hidingSpots() {
     let y = -1;
     for (let yy = H - 2; yy > 0; yy--) {
       const id = world[idx(x, yy, z)];
-      if (id === AIR || id === LEAVES || id === PALM || BLOCKS[id].passable) continue;
+      if (id === AIR || id === LEAVES || id === LEAVES_G || id === PALM || BLOCKS[id].passable) continue;
       y = id === LOG ? -1 : yy + 1;
       break;
     }
@@ -3957,7 +4140,7 @@ function hostData(conn, m) {
   if (!id || !m || typeof m !== 'object') return;
   if (m.t === 'join') {
     // Kali pertama: hantar seluruh dunia; tetamu akan memuat semula dengan dunia ini
-    conn.send({ t: 'world', world: { seed: save.seed, gen: GEN, base: UPGRADED ? 1 : 0, edits: flatEdits(), time: Math.round(dayTime), houses: houseSites, housesV: houseVersion, parks: parkSites } });
+    conn.send({ t: 'world', world: { seed: save.seed, size: 2, gen: GEN, base: UPGRADED ? 1 : 0, edits: flatEdits(), time: Math.round(dayTime), houses: houseSites, housesV: houseVersion, parks: parkSites } });
   } else if (m.t === 'hello') {
     // Tetamu sudah memuat dunia: hantar perubahan terkini dan kedudukan semua pemain
     conn.send({ t: 'edits', you: id, edits: flatEdits(), time: Math.round(dayTime) });
@@ -4119,7 +4302,7 @@ window.addEventListener('pagehide', () => { saveDirty = true; writeSave(); });
 
 // ---------- Gelung utama ----------
 let last = performance.now();
-let wasSubmerged = false;
+let wasSubmerged = false, cullTimer = 0;
 const underwaterEl = document.getElementById('underwater');
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
@@ -4142,9 +4325,19 @@ function frame(now) {
   if (playing && !bagOpen && !dead) updateDrops(dt, time);
   for (const c of clouds) {
     c.position.x += dt * 0.8;
-    if (c.position.x > 190) c.position.x = -90;
+    if (c.position.x > W + 90) c.position.x = -90;
   }
 
+  // Dunia besar: chunk di luar jarak kabus tak perlu dilukis
+  cullTimer -= dt;
+  if (cullTimer <= 0) {
+    cullTimer = 0.4;
+    chunks.forEach((meshes, key) => {
+      const cx = (key % 1000) * CHUNK + CHUNK / 2, cz = Math.floor(key / 1000) * CHUNK + CHUNK / 2;
+      const near = Math.hypot(cx - player.x, cz - player.z) < 134;
+      for (const m of meshes) m.visible = near;
+    });
+  }
   if (dirtyChunks.size) {
     for (const key of dirtyChunks) buildChunk(key % 1000, Math.floor(key / 1000));
     dirtyChunks.clear();
