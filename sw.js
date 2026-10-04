@@ -1,7 +1,7 @@
 // Simpan fail game supaya boleh main tanpa internet.
 // Cuba rangkaian dulu (supaya versi baru sampai), guna simpanan kalau offline.
-const CACHE = 'pinkcraft-v2';
-const FILES = ['./', 'index.html', 'game.js', 'three.module.min.js', 'peerjs.min.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
+const CACHE = 'pinkcraft-v3';
+const FILES = ['./', 'index.html', 'game.js', 'three.module.min.js', 'peerjs.min.js', 'pixel.woff2', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));

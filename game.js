@@ -1432,6 +1432,20 @@ window.addEventListener('resize', resize);
 resize();
 
 const atlasCanvas = makeAtlas();
+// Bingkai panel antara muka: jubin Pink Brick mengelilingi satu petak kosong, diguna oleh CSS sebagai border-image
+{
+  const c = document.createElement('canvas');
+  c.width = c.height = 48;
+  const ctx = c.getContext('2d'), tile = 7;
+  for (let gy = 0; gy < 3; gy++) {
+    for (let gx = 0; gx < 3; gx++) {
+      if (gx !== 1 || gy !== 1) ctx.drawImage(atlasCanvas, (tile % 4) * 16, (tile >> 2) * 16, 16, 16, gx * 16, gy * 16, 16, 16);
+    }
+  }
+  ctx.fillStyle = '#4a1d3a';
+  for (const [x, y, w, hgt] of [[0, 0, 48, 2], [0, 46, 48, 2], [0, 0, 2, 48], [46, 0, 2, 48], [14, 14, 20, 2], [14, 32, 20, 2], [14, 14, 2, 20], [32, 14, 2, 20]]) ctx.fillRect(x, y, w, hgt);
+  document.documentElement.style.setProperty('--frame-img', 'url(' + c.toDataURL() + ')');
+}
 const atlas = new THREE.CanvasTexture(atlasCanvas);
 atlas.magFilter = atlas.minFilter = THREE.NearestFilter;
 atlas.generateMipmaps = false;

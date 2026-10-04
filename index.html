@@ -153,6 +153,94 @@
     #bagGrid .slot { width: 100%; height: auto; aspect-ratio: 1; padding: 1px; border-width: 2px; }
     #recipes { max-height: none; overflow: visible; box-sizing: border-box; }
   }
+
+  /* ================= Kulit antara muka gaya game =================
+     Semua paparan (menu, beg, pemberitahuan, papan markah) guna bingkai piksel, butang timbul dan fon piksel,
+     supaya tak nampak macam laman web biasa. Peraturan di bawah hanya menukar rupa; susun atur kekal di atas. */
+  @font-face { font-family: 'Pixel'; src: url('pixel.woff2') format('woff2'); font-weight: 400 700; font-display: swap; }
+  :root { --frame: #4a1d3a; --ink: #4a1d3a; --paper: #fff1f8; --pink: #ff5aa8; --pink-dark: #c2307a; --gold: #ffd633; --night: rgba(38, 12, 40, .82); }
+  html, body, button, input { font-family: 'Pixel', 'Trebuchet MS', system-ui, sans-serif; }
+  button { cursor: pointer; }
+
+  /* Latar panel: dunia kekal kelihatan di belakang, cuma digelapkan */
+  #overlay, #bag, #mp, .panel { background: rgba(38, 12, 40, .55); }
+  #death { background: rgba(110, 0, 40, .72); }
+
+  /* Panel: bingkai bata pink (dilukis oleh game daripada tekstur block), isi kertas pink */
+  .card { border-radius: 0; background: var(--paper); border: 14px solid var(--frame); border-image: var(--frame-img) 16 round; image-rendering: pixelated;
+    box-shadow: 0 0 0 3px var(--frame), 0 9px 0 3px rgba(0, 0, 0, .28); padding: 14px 18px 16px; }
+  .card p { color: var(--ink); font-size: 14px; }
+  .card h1, .card h2, .panel h2, #bag h2, #mp h2 { margin: 0 0 10px; padding: 7px 10px 8px; color: #fff; background: var(--pink); border: 3px solid var(--frame);
+    box-shadow: inset -3px -3px 0 rgba(0, 0, 0, .2), inset 3px 3px 0 rgba(255, 255, 255, .45); text-shadow: 2px 2px 0 var(--frame); letter-spacing: 1px; }
+  .card h1 { font-size: 25px; }
+  .card h2, .panel h2, #bag h2, #mp h2 { font-size: 19px; }
+  #mp h2 { background: #5aa6f0; }
+  #death .card h1 { background: #d81f4f; }
+
+  /* Butang timbul; ditekan, ia tenggelam */
+  .card button, #dismount, #menuBtn, #bagBtn { border-radius: 0; border: 3px solid var(--frame); color: #fff; background-color: var(--pink);
+    box-shadow: inset -3px -4px 0 rgba(0, 0, 0, .24), inset 3px 3px 0 rgba(255, 255, 255, .5); text-shadow: 2px 2px 0 rgba(74, 29, 58, .55); letter-spacing: .5px; }
+  .card button:active, #dismount:active, #menuBtn:active, #bagBtn:active { box-shadow: inset 3px 4px 0 rgba(0, 0, 0, .28); transform: translateY(2px); }
+  .card button:disabled { filter: grayscale(.7) opacity(.6); }
+  #play, #revive, #bagClose, .panel .close { background-color: var(--pink); }
+  #install { background-color: var(--pink-dark); }
+  #upgradeBtn { background-color: #ff9a3c; color: #fff; }
+  #mpBtn, #mpHost, #mpJoin { background-color: #5aa6f0; }
+  #mpLeave { background-color: #ff6a4d; }
+  /* Butang sekunder: warna kertas kuning, tulisan gelap */
+  #modeBtn, #ctrlBtn, #newWorld, .card .row button, #gameStop, #mpClose, .card .hat, .panel .game {
+    background-color: #ffeeb0; color: var(--ink); text-shadow: none; }
+  .card .hat.on { background-color: var(--pink); color: #fff; text-shadow: 2px 2px 0 rgba(74, 29, 58, .55); }
+  .panel .game { font-size: 17px; }
+  .panel .game small { color: #7a4a63; font-size: 12px; }
+  #oldWorld { border-radius: 0; background: #ffeeb0; border: 3px dashed #c98a2a; color: #6b4300; }
+  #mpCode { border-radius: 0; border: 3px solid var(--frame); background: #fff; color: var(--ink); box-shadow: inset 3px 3px 0 rgba(0, 0, 0, .14); font-family: 'Pixel', monospace; }
+
+  /* Hotbar dan slot: petak cekung macam inventori game */
+  #hotbar { border-radius: 0; background: var(--night); border: 3px solid var(--frame); box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .28), 0 4px 0 rgba(0, 0, 0, .25); gap: 3px; }
+  .slot { border-radius: 0; border: 3px solid rgba(0, 0, 0, .45); background: rgba(255, 255, 255, .16); box-shadow: inset 2px 2px 0 rgba(0, 0, 0, .3), inset -2px -2px 0 rgba(255, 255, 255, .22); }
+  .slot canvas { border-radius: 0; }
+  .slot.on { border-color: #fff; background: rgba(255, 255, 255, .42); box-shadow: 0 0 0 2px var(--pink); }
+  .cnt { font: 700 13px 'Pixel', system-ui, sans-serif; text-shadow: 1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000; }
+  .dur { border-radius: 0; background: #000; }
+  #bagBtn { font-size: 13px; }
+  #bagGrid .slot { background: #dcb6cb; border-color: #8a5a78; box-shadow: inset 3px 3px 0 rgba(0, 0, 0, .22), inset -2px -2px 0 rgba(255, 255, 255, .55); }
+  #bagGrid .slot.hot { background: #f2a9cf; }
+  #bagGrid .slot.on { background: #fff; border-color: var(--pink); }
+  .recipe { border-radius: 0; background: #ffeeb0; border: 2px solid var(--frame); box-shadow: inset -2px -3px 0 rgba(0, 0, 0, .14); color: var(--ink); font: 700 13px 'Pixel', system-ui, sans-serif; }
+  .part canvas { border-radius: 0; border: 1px solid rgba(74, 29, 58, .5); }
+  .rname { color: var(--ink); }
+  .card .recipe button { border-radius: 0; border-width: 2px; }
+
+  /* Pemberitahuan: papan gelap berbingkai, macam mesej dalam game */
+  #toast { border-radius: 0; background: var(--night); color: #fff; border: 3px solid #fff; box-shadow: 0 0 0 3px var(--frame), 0 5px 0 3px rgba(0, 0, 0, .25);
+    padding: 6px 14px; font-size: 15px; font-weight: 700; text-shadow: 1px 1px 0 #000; letter-spacing: .3px; }
+  #stickerPop { border-radius: 0; background: #2b1a33; color: var(--gold); border: 3px solid var(--gold); box-shadow: 0 0 0 3px #2b1a33, 0 6px 0 3px rgba(0, 0, 0, .3);
+    padding: 9px 18px; font: 700 16px 'Pixel', system-ui, sans-serif; text-shadow: 2px 2px 0 #000; }
+  #gameHud { border-radius: 0; background: var(--night); color: #fff; border: 3px solid var(--gold); box-shadow: 0 0 0 3px var(--frame);
+    font: 700 16px 'Pixel', system-ui, sans-serif; text-shadow: 1px 1px 0 #000; padding: 5px 14px; }
+  #saveStatus { border-radius: 0; background: rgba(38, 12, 40, .6); color: #ffe3f1; border: 2px solid rgba(255, 255, 255, .45); font-size: 11px; }
+  #saveStatus.error { background: #7a1500; color: #ffe0c9; border-color: #ffb089; }
+  #mpBadge { border-radius: 0; background: #2f6fc0; border: 2px solid #fff; box-shadow: 0 0 0 2px var(--frame); font: 700 12px 'Pixel', system-ui, sans-serif; }
+
+  /* Kawalan di skrin */
+  #menuBtn { font-size: 20px; padding: 0; }
+  #dismount { font-size: 16px; padding: 9px 20px; }
+  .pb { border: 3px solid var(--frame); box-shadow: inset -3px -4px 0 rgba(0, 0, 0, .26), inset 3px 3px 0 rgba(255, 255, 255, .5); font: 700 23px 'Pixel', system-ui, sans-serif; text-shadow: 2px 2px 0 rgba(0, 0, 0, .4); }
+  .pb small { font-size: 10px; font-weight: 700; text-shadow: 1px 1px 0 rgba(0, 0, 0, .5); }
+  #joy { border: 3px solid var(--frame); background: rgba(255, 255, 255, .28); box-shadow: inset 0 0 0 3px rgba(255, 255, 255, .5); }
+  #knob { border: 3px solid var(--frame); background: var(--pink); box-shadow: inset -3px -4px 0 rgba(0, 0, 0, .25), inset 3px 3px 0 rgba(255, 255, 255, .5); box-sizing: border-box; }
+  #crosshair::before, #crosshair::after { box-shadow: 0 0 0 1px var(--frame); }
+
+  /* Pelekat dan rupa pemain */
+  .sticker { border-radius: 0; background: #e6d3df; border: 2px solid #b79aae; color: #8d7285; }
+  .sticker.have { background: #ffeeb0; border-color: var(--frame); color: var(--ink); box-shadow: inset -2px -3px 0 rgba(0, 0, 0, .13), inset 2px 2px 0 rgba(255, 255, 255, .6); }
+  #lookPreview { border-radius: 0; border: 3px solid var(--frame); background: #ffd9ec; box-shadow: inset 3px 3px 0 rgba(0, 0, 0, .12); }
+  .card .swatch { border-radius: 0; border: 3px solid var(--frame); box-shadow: inset -3px -3px 0 rgba(0, 0, 0, .2), inset 3px 3px 0 rgba(255, 255, 255, .45); }
+  .card .swatch.on { box-shadow: 0 0 0 3px #fff, 0 0 0 6px var(--pink); }
+  @media (max-width: 600px) {
+    .card { border-width: 9px; padding: 10px 10px 12px; }
+  }
 </style>
 </head>
 <body>
