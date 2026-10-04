@@ -19,11 +19,11 @@ const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, LOG = 4, LEAVES = 5, BRICK = 6, P
   BED_HEAD = 30, BED_FOOT = 31, SHELF = 32, RUG = 33, PAINT_PINKY = 34, PAINT_RAINBOW = 35, FLOWERS = 36,
   SOFA = 37, TABLE = 38, TV = 39, KITCHEN = 40, WARDROBE = 41, FENCE = 42,
   STRAW_SPROUT = 43, STRAW_RIPE = 44, CARROT_SPROUT = 45, CARROT_RIPE = 46, FLOWER_SPROUT = 47,
-  SLIDE = 48, WSLIDE = 49, GRASS_G = 50, LEAVES_G = 51;
+  SLIDE = 48, WSLIDE = 49, GRASS_G = 50, LEAVES_G = 51, RAIL = 52, SHOP_ICE = 53, SHOP_CANDY = 54;
 // Item yang digugurkan oleh bijih (ditakrif di sini kerana BLOCKS merujuknya)
 const KRISTAL = 113, EMAS = 114, PERMATA = 115;
 // Benih dan hasil kebun (juga dirujuk oleh BLOCKS)
-const SEED_STRAW = 117, SEED_CARROT = 118, SEED_FLOWER = 119, STRAWBERRY = 120, CARROT = 121;
+const SEED_STRAW = 117, SEED_CARROT = 118, SEED_FLOWER = 119, STRAWBERRY = 120, CARROT = 121, ICECREAM = 122, COTTON = 123;
 
 // tiles: [atas, bawah, sisi] — nombor petak dalam atlas 4x4; hard: saat untuk pecahkan dengan tangan; tool: alat yang mempercepat
 const BLOCKS = {
@@ -81,6 +81,10 @@ const BLOCKS = {
   // Alam hijau di tanah baru
   [GRASS_G]: { name: 'Rumput Hijau', hard: 0.6, tool: 'shovel', tiles: [58, 2, 59] },
   [LEAVES_G]: { name: 'Daun Hijau', hard: 0.25, tiles: [21, 21, 21] },
+  [RAIL]: { name: 'Landasan Kereta Api', hard: 0.8, tiles: [60, 2, 2] },
+  // gives: kaunter kedai yang memberi makanan percuma bila ditekan
+  [SHOP_ICE]: { name: 'Kaunter Aiskrim', hard: 0.8, tiles: [17, 17, 61], gives: ICECREAM },
+  [SHOP_CANDY]: { name: 'Kaunter Gula-gula Kapas', hard: 0.8, tiles: [17, 17, 62], gives: COTTON },
   [STRAW_SPROUT]: { name: 'Anak Strawberi', hard: 0.25, tiles: [51, 51, 51], transparent: true, passable: true, grows: STRAW_RIPE, drops: [[SEED_STRAW, 1, 1]] },
   [STRAW_RIPE]: { name: 'Pokok Strawberi', hard: 0.25, tiles: [52, 52, 52], transparent: true, passable: true, harvest: true, drops: [[STRAWBERRY, 2, 3], [SEED_STRAW, 1, 2]] },
   [CARROT_SPROUT]: { name: 'Anak Lobak', hard: 0.25, tiles: [53, 53, 53], transparent: true, passable: true, grows: CARROT_RIPE, drops: [[SEED_CARROT, 1, 1]] },
@@ -136,6 +140,22 @@ const ITEMS = {
   [SEED_STRAW]: { name: 'Benih Strawberi', seed: STRAW_SPROUT, pixel: seedPacket('ff3b5c') },
   [SEED_CARROT]: { name: 'Benih Lobak', seed: CARROT_SPROUT, pixel: seedPacket('ff8c2a') },
   [SEED_FLOWER]: { name: 'Benih Bunga', seed: FLOWER_SPROUT, pixel: seedPacket('ff7fe0') },
+  [ICECREAM]: {
+    name: 'Aiskrim', food: 4,
+    pixel: (x, y) => {
+      if (Math.hypot(x - 7.5, y - 5) < 3.6) return y < 4 ? 'ffd0f4' : 'ff7fbf';
+      if (y >= 7 && y <= 14 && Math.abs(x - 7.5) <= (15 - y) * 0.45) return (x + y) % 2 ? 'e0a050' : 'ffc878';
+      return null;
+    },
+  },
+  [COTTON]: {
+    name: 'Gula-gula Kapas', food: 3,
+    pixel: (x, y) => {
+      if (Math.hypot(x - 7.5, y - 5.5) < 4.6) return (x * 3 + y) % 5 === 0 ? 'ffffff' : 'ffb3dc';
+      if ((x === 7 || x === 8) && y >= 9 && y <= 14) return 'c9a36a';
+      return null;
+    },
+  },
   [STRAWBERRY]: {
     name: 'Strawberi', food: 3,
     pixel: (x, y) => {
@@ -418,6 +438,22 @@ const TILES = [
   // 58 rumput hijau (atas), 59 rumput hijau (sisi, di atas tanah)
   (x, y) => pick(x, y, 18, ['6fcf6f', '6fcf6f', '82d97f', '5cc463']),
   (x, y) => (y < 3 + Math.floor(hash(x, 0, 19) * 3) ? pick(x, y, 18, ['6fcf6f', '6fcf6f', '82d97f', '5cc463']) : dirt(x, y)),
+  // 60 landasan: rel kelabu pada alas kayu (sama dari semua arah)
+  (x, y) => (x === 3 || x === 4 || x === 11 || x === 12 || y === 3 || y === 4 || y === 11 || y === 12 ? 'c7c7d6' : (x + y) % 4 < 2 ? '9b6a3c' : '7d5230'),
+  // 61 kaunter aiskrim
+  (x, y) => {
+    if (edge(x, y)) return 'ff9fd0';
+    if (Math.hypot(x - 7.5, y - 5.5) < 3.2) return y < 5 ? 'ffd0f4' : 'ff7fbf';
+    if (y >= 8 && y <= 13 && Math.abs(x - 7.5) <= (14 - y) * 0.5) return (x + y) % 2 ? 'e0a050' : 'ffc878';
+    return 'ffffff';
+  },
+  // 62 kaunter gula-gula kapas
+  (x, y) => {
+    if (edge(x, y)) return '6fb7ff';
+    if (Math.hypot(x - 7.5, y - 5.5) < 4) return (x * 3 + y) % 5 === 0 ? 'ffffff' : 'ffb3dc';
+    if ((x === 7 || x === 8) && y >= 9 && y <= 13) return 'c9a36a';
+    return 'ffffff';
+  },
 ];
 const ATLAS_ROWS = 16; // atlas 4 lajur x 16 baris petak 16x16
 
@@ -551,7 +587,9 @@ const PLAY_ZONE = { x0: 40, x1: 56, z0: 66, z1: 82, y: 17 };
 const ZONES = [FIELD_ZONE, PLAY_ZONE];
 // Taman Tema Air terletak di tanah baru sebelah timur, jadi ia dibina dalam semua dunia
 const WATER_ZONE = { x0: 108, x1: 150, z0: 20, z1: 62, y: 17 };
-const NEW_ZONES = [WATER_ZONE];
+const VILLAGE_ZONE = { x0: 104, x1: 150, z0: 100, z1: 140, y: 17 };
+const THEME_ZONE = { x0: 44, x1: 90, z0: 112, z1: 150, y: 17 };
+const NEW_ZONES = [WATER_ZONE, VILLAGE_ZONE, THEME_ZONE];
 const ALL_ZONES = ZONES.concat(NEW_ZONES);
 const inOldWorld = (x, z) => x < OW && z < OD;
 // Tema tanah baru: pink dan hijau alam bersama. Dunia asal kekal pink.
@@ -623,23 +661,26 @@ function generateWorld(seed) {
     sakuraTree(x, y, z, rnd);
   }
   // Pokok tanah baru
-  const rndNew = mulberry32(seed + 61);
   for (let i = 0; i < 230; i++) {
-    const x = 3 + Math.floor(rndNew() * (W - 6)), z = 3 + Math.floor(rndNew() * (D - 6));
+    const rndTree = mulberry32(seed + 61 + i * 7919);
+    const x = 3 + Math.floor(rndTree() * (W - 6)), z = 3 + Math.floor(rndTree() * (D - 6));
     if ((x < OW + 3 && z < OD + 3) || ALL_ZONES.some((zn) => zoneDist(zn, x, z) < 4)) continue;
     const y = surfaceY(x, z);
     const below = world[idx(x, y - 1, z)];
     if (y > H - 10 || (below !== GRASS && below !== GRASS_G)) continue;
-    sakuraTree(x, y, z, rndNew, below === GRASS_G ? LEAVES_G : LEAVES); // daun hijau di padang hijau
+    sakuraTree(x, y, z, rndTree, below === GRASS_G ? LEAVES_G : LEAVES); // daun hijau di padang hijau
   }
   // Bunga liar di padang hijau
+  const rndFlower = mulberry32(seed + 62);
   for (let i = 0; i < 260; i++) {
-    const x = 3 + Math.floor(rndNew() * (W - 6)), z = 3 + Math.floor(rndNew() * (D - 6)), y = surfaceY(x, z);
+    const x = 3 + Math.floor(rndFlower() * (W - 6)), z = 3 + Math.floor(rndFlower() * (D - 6)), y = surfaceY(x, z);
     if (y < H - 2 && world[idx(x, y - 1, z)] === GRASS_G && !ALL_ZONES.some((zn) => zoneDist(zn, x, z) < 2)) world[idx(x, y, z)] = FLOWERS;
   }
   if (UPGRADED) upgradeTerrain(seed);
   if (GEN === 2) buildLandmarks(seed);
   buildWaterPark();
+  buildVillage();
+  buildThemePark();
   generateOres(seed);
   placeChests(seed);
 }
@@ -698,6 +739,106 @@ function buildWaterPark() {
     fillBox(x, f + 1, z, x, f + 3, z, BLUE);
     world[idx(x, f + 4, z)] = GLOW;
   }
+}
+// Rumah kecil kampung 5 x 5: pintu menghadap dataran, tingkap, bumbung bertingkat, katil dan meja di dalam
+function cottage(x0, f, z0, wall, roof, doorNorth) {
+  const x1 = x0 + 4, z1 = z0 + 4, front = doorNorth ? z0 : z1, back = doorNorth ? z1 : z0, inward = doorNorth ? -1 : 1;
+  fillBox(x0, f, z0, x1, f, z1, PLANKS);
+  for (let y = f + 1; y <= f + 3; y++) {
+    for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) if (x === x0 || x === x1 || z === z0 || z === z1) world[idx(x, y, z)] = wall;
+  }
+  fillBox(x0 + 2, f + 1, front, x0 + 2, f + 2, front, AIR);
+  world[idx(x0, f + 2, z0 + 2)] = GLASS;
+  world[idx(x1, f + 2, z0 + 2)] = GLASS;
+  world[idx(x0 + 2, f + 2, back)] = GLASS;
+  fillBox(x0 - 1, f + 4, z0 - 1, x1 + 1, f + 4, z1 + 1, roof);
+  fillBox(x0, f + 5, z0, x1, f + 5, z1, roof);
+  fillBox(x0 + 1, f + 6, z0 + 1, x1 - 1, f + 6, z1 - 1, roof);
+  world[idx(x0 + 2, f + 4, z0 + 2)] = GLOW;
+  world[idx(x0 + 1, f + 1, back + inward)] = BED_HEAD;
+  world[idx(x0 + 1, f + 1, back + inward * 2)] = BED_FOOT;
+  world[idx(x0 + 3, f + 1, back + inward)] = TABLE;
+}
+function lampPost(x, f, z, id) {
+  fillBox(x, f + 1, z, x, f + 3, z, id);
+  world[idx(x, f + 4, z)] = GLOW;
+}
+// Kampung Ceria: dataran berair pancut, enam rumah kecil, kedai aiskrim, pintu gerbang di utara
+function buildVillage() {
+  const zn = VILLAGE_ZONE, f = zn.y;
+  fillBox(zn.x0, f + 1, zn.z0, zn.x1, f + 14, zn.z1, AIR);
+  // Laluan bersilang dan dataran
+  fillBox(127, f, 100, 127, f, 136, CANDY);
+  fillBox(108, f, 120, 146, f, 120, CANDY);
+  fillBox(123, f, 116, 131, f, 124, LINE);
+  fillBox(125, f, 118, 129, f, 122, BLUE);
+  fillBox(126, f, 119, 128, f, 121, WATER);
+  fillBox(127, f, 120, 127, f + 2, 120, LINE);
+  world[idx(127, f + 3, 120)] = GLOW;
+  for (const [x, z] of [[124, 117], [130, 117], [124, 123], [130, 123]]) world[idx(x, f + 1, z)] = SOFA; // bangku
+  // Rumah: barisan utara berpintu ke selatan, barisan selatan berpintu ke utara
+  cottage(110, f, 106, BRICK, HEART, false);
+  cottage(119, f, 106, PLANKS, RAINBOW, false);
+  cottage(131, f, 106, LINE, BLUE, false);
+  cottage(140, f, 106, YELLOW, RAINBOW, false);
+  cottage(110, f, 130, CANDY, PLANKS, true);
+  cottage(140, f, 130, BLUE, LINE, true);
+  // Kedai aiskrim: gerai terbuka menghadap dataran, kaunter di depan
+  fillBox(124, f, 128, 130, f, 131, PLANKS);
+  fillBox(124, f + 1, 131, 130, f + 3, 131, LINE);
+  fillBox(124, f + 1, 129, 124, f + 3, 130, LINE);
+  fillBox(130, f + 1, 129, 130, f + 3, 130, LINE);
+  fillBox(125, f + 1, 128, 129, f + 1, 128, SHOP_ICE);
+  fillBox(123, f + 4, 127, 131, f + 4, 132, RAINBOW);
+  world[idx(127, f + 4, 130)] = GLOW;
+  // Pokok bunga di tepi laluan, tiang lampu, pintu gerbang
+  for (const z of [103, 110, 114, 126, 134]) { world[idx(126, f + 1, z)] = FLOWERS; world[idx(128, f + 1, z)] = FLOWERS; }
+  for (const [x, z] of [[116, 118], [138, 118], [116, 122], [138, 122], [108, 102], [146, 102], [108, 138], [146, 138]]) lampPost(x, f, z, LINE);
+  fillBox(125, f + 1, 100, 125, f + 4, 100, YELLOW);
+  fillBox(129, f + 1, 100, 129, f + 4, 100, YELLOW);
+  fillBox(125, f + 5, 100, 129, f + 5, 100, RAINBOW);
+}
+// Taman Tema: landasan kereta api keliling, tapak roda Ferris dan karusel, gerai, istana lompat, belon
+function buildThemePark() {
+  const zn = THEME_ZONE, f = zn.y;
+  fillBox(zn.x0, f + 1, zn.z0, zn.x1, f + 26, zn.z1, AIR);
+  fillBox(67, f, 112, 67, f, 138, CANDY);
+  fillBox(52, f, 138, 82, f, 138, CANDY);
+  // Landasan segi empat (kereta api sendiri dilukis sebagai objek bergerak)
+  fillBox(47, f, 115, 87, f, 115, RAIL);
+  fillBox(47, f, 147, 87, f, 147, RAIL);
+  fillBox(47, f, 115, 47, f, 147, RAIL);
+  fillBox(87, f, 115, 87, f, 147, RAIL);
+  // Roda Ferris: lantai dan dua tiang penyokong (rodanya objek berpusing)
+  fillBox(55, f, 127, 61, f, 133, LINE);
+  fillBox(58, f + 1, 128, 58, f + 12, 128, LINE);
+  fillBox(58, f + 1, 132, 58, f + 12, 132, LINE);
+  // Karusel: lantai bulat berpetak
+  for (let dz = -5; dz <= 5; dz++) for (let dx = -5; dx <= 5; dx++) {
+    if (Math.hypot(dx, dz) <= 5.2) world[idx(76 + dx, f, 126 + dz)] = (dx + dz) % 2 ? CANDY : LINE;
+  }
+  // Gerai gula-gula kapas
+  fillBox(70, f, 141, 74, f, 143, PLANKS);
+  fillBox(70, f + 1, 143, 74, f + 3, 143, LINE);
+  fillBox(70, f + 1, 142, 70, f + 3, 142, LINE);
+  fillBox(74, f + 1, 142, 74, f + 3, 142, LINE);
+  fillBox(71, f + 1, 141, 73, f + 1, 141, SHOP_CANDY);
+  fillBox(69, f + 4, 140, 75, f + 4, 144, CANDY);
+  // Istana lompat: lantai trampolin, dinding pelangi, terbuka di utara
+  fillBox(79, f, 139, 84, f, 144, TRAMP);
+  for (let z = 139; z <= 144; z++) for (let x = 79; x <= 84; x++) {
+    if ((x === 79 || x === 84 || z === 144) && z !== 139) fillBox(x, f + 1, z, x, f + 2, z, RAINBOW);
+  }
+  for (const [x, z] of [[79, 144], [84, 144]]) fillBox(x, f + 3, z, x, f + 4, z, YELLOW);
+  // Belon bertiang, tiang lampu, pintu gerbang di utara
+  for (const [x, z, id] of [[52, 119, RAINBOW], [82, 119, HEART], [52, 143, YELLOW], [62, 121, BLUE], [72, 119, HEART], [84, 134, RAINBOW]]) {
+    fillBox(x, f + 1, z, x, f + 3, z, LINE);
+    world[idx(x, f + 4, z)] = id;
+  }
+  for (const [x, z] of [[49, 117], [85, 117], [49, 145], [85, 145], [64, 124], [70, 124]]) lampPost(x, f, z, BLUE);
+  fillBox(65, f + 1, 112, 65, f + 4, 112, BLUE);
+  fillBox(69, f + 1, 112, 69, f + 4, 112, BLUE);
+  fillBox(65, f + 5, 112, 69, f + 5, 112, RAINBOW);
 }
 // Naik taraf: bina semula hanya lajur yang berbeza antara dunia lama dan baru (laut, pantai, padang, taman).
 // Lajur lain kekal sama, jadi pokok dan binaan pemain di situ tak terusik.
@@ -1669,6 +1810,13 @@ function slidePush(dt) {
 }
 function updatePlayer(dt) {
   saveDirty = true;
+  if (seatRide) {
+    // Duduk di roda Ferris, karusel atau kereta api: pemain ikut tempat duduk, hanya pandangan yang bebas
+    player.x = seatRide.x; player.y = seatRide.y; player.z = seatRide.z;
+    player.vx = player.vy = player.vz = 0;
+    fallPeak = player.y;
+    return;
+  }
   let f = -joy.y, s = joy.x;
   if (keys.KeyW || keys.ArrowUp) f += 1;
   if (keys.KeyS || keys.ArrowDown) f -= 1;
@@ -2076,14 +2224,17 @@ function aim(sx, sy) {
   else ndc.set((sx / window.innerWidth) * 2 - 1, -(sy / window.innerHeight) * 2 + 1);
   raycaster.setFromCamera(ndc, camera);
   const hit = raycast(raycaster.ray.origin, raycaster.ray.direction, REACH);
-  const mobHits = raycaster.intersectObjects(mobs.concat(jellies, critters, ball ? [ball] : []).map((m) => m.group), true);
-  let mob = null, jelly = null, kicked = null;
+  const mobHits = raycaster.intersectObjects(mobs.concat(jellies, critters, villagers, rideSeats, ball ? [ball] : []).map((m) => m.group), true);
+  let mob = null, jelly = null, kicked = null, villager = null, seat = null;
   if (mobHits.length && (!hit || mobHits[0].distance < hit.t)) {
     let o = mobHits[0].object;
-    while (o && !o.userData.mob && !o.userData.jelly && !o.userData.ball) o = o.parent;
-    if (o) { mob = o.userData.mob || null; jelly = o.userData.jelly || null; kicked = o.userData.ball || null; }
+    while (o && !o.userData.mob && !o.userData.jelly && !o.userData.ball && !o.userData.villager && !o.userData.seat) o = o.parent;
+    if (o) {
+      mob = o.userData.mob || null; jelly = o.userData.jelly || null; kicked = o.userData.ball || null;
+      villager = o.userData.villager || null; seat = o.userData.seat || null;
+    }
   }
-  return { hit, mob, jelly, ball: kicked };
+  return { hit, mob, jelly, ball: kicked, villager, seat };
 }
 
 function pet(m) {
@@ -2147,6 +2298,7 @@ function doPlace(sx, sy) {
   const res = aim(sx, sy), hit = res.hit;
   if (interact(res)) return;
   if (hit && BLOCKS[hit.id].chest) { breakBlock(hit); return; } // tekan peti untuk buka
+  if (hit && BLOCKS[hit.id].gives) { useShop(hit); return; }
   if (hit && (hit.id === BED_HEAD || hit.id === BED_FOOT) && !ITEMS[heldId()]) { sleepInBed(); return; }
   if (ITEMS[heldId()] && ITEMS[heldId()].food) { eat(); return; }
   if (ITEMS[heldId()] && ITEMS[heldId()].firework) { launchFirework(); return; }
@@ -2203,6 +2355,16 @@ function startRide(m) {
   showToast('Menunggang Pinky! Tekan Turun untuk turun');
 }
 function stopRide() {
+  if (seatRide) {
+    // Turun dari permainan taman tema: ke tempat keluar yang selamat, atau ke tanah di bawah tempat duduk
+    const exit = seatRide.ride.exit;
+    if (exit) { player.x = exit[0]; player.y = exit[1]; player.z = exit[2]; }
+    else player.y = surfaceY(Math.floor(player.x), Math.floor(player.z));
+    player.vy = 0;
+    fallPeak = player.y;
+    seatRide.group.visible = true;
+    seatRide = null;
+  }
   riding = null;
   dismountBtn.classList.add('hidden');
 }
@@ -2225,6 +2387,8 @@ function interact(res) {
   }
   if (res.jelly) { hitJelly(res.jelly); return true; }
   if (res.ball) { kickBall(11, 5.5); return true; }
+  if (res.villager) { greet(res.villager); return true; }
+  if (res.seat) { boardSeat(res.seat); return true; }
   return false;
 }
 
@@ -2505,13 +2669,18 @@ houseSites.forEach((site, i) => {
   scene.add(sign);
 });
 
-function addSign(text, w, h, x, y, z) {
+function addSign(text, w, h, x, y, z, rotY) {
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: makeSignTexture(text), transparent: true }));
   sign.position.set(x, y, z);
+  if (rotY) sign.rotation.y = rotY;
   scene.add(sign);
 }
 // Di palang pintu gerbang kandang, dan di atas pintu menara
 if (parkSites.pen) addSign('Kandang Pinky', 3.2, 1, parkSites.pen[0] + 5.5, parkSites.pen[1] + 4.5, parkSites.pen[2] + PEN_D + 0.04);
+// Papan nama menghadap utara, ke arah pemain datang dari dunia asal
+addSign('Kampung Ceria', 4.6, 1.44, 127.5, VILLAGE_ZONE.y + 5.5, 99.96, Math.PI);
+addSign('Kedai Aiskrim', 4, 1.25, 127.5, VILLAGE_ZONE.y + 4.5, 126.96, Math.PI);
+addSign('Taman Tema', 4.6, 1.44, 67.5, THEME_ZONE.y + 5.5, 111.96, Math.PI);
 addSign('Taman Tema Air', 4.6, 1.44, 129.5, WATER_ZONE.y + 5.5, WATER_ZONE.z1 + 1.04);
 if (parkSites.tower) addSign('Menara Tinjau', 3.2, 1, parkSites.tower[0] + 2.5, parkSites.tower[1] + 3.8, parkSites.tower[2] + TOWER_SIZE + 0.04);
 
@@ -2790,7 +2959,7 @@ function updateMining(dt) {
   let res = null;
   if (holdPoint) res = aim(holdPoint.x, holdPoint.y);
   else if (playing && (locked() || consoleMode)) res = aim();
-  const hit = res && !res.mob && !res.jelly && !res.ball ? res.hit : null;
+  const hit = res && !res.mob && !res.jelly && !res.ball && !res.villager && !res.seat ? res.hit : null;
   const held = holdPoint || (mouseMining && locked()) || padMining;
   const active = playing && (held || pendingStrike);
   const key = hit && hit.id !== BEDROCK ? idx(hit.x, hit.y, hit.z) : -1;
@@ -3248,6 +3417,10 @@ const STICKERS = [
   { id: 'lumba', icon: '\u2B50', name: 'Pelari Bintang', hint: 'Habiskan Lumba Bintang' },
   { id: 'cari', icon: '\u{1F50D}', name: 'Mata Tajam', hint: 'Jumpa semua Pinky dalam Cari Pinky' },
   { id: 'lawan', icon: '\u{1F947}', name: 'Juara Perlawanan', hint: 'Menang satu perlawanan Lawan Bola' },
+  { id: 'roda', icon: '\u{1F3A1}', name: 'Atas Awan', hint: 'Naik roda Ferris di Taman Tema' },
+  { id: 'keretapi', icon: '\u{1F682}', name: 'Tut Tut!', hint: 'Naik kereta api di Taman Tema' },
+  { id: 'aiskrim', icon: '\u{1F366}', name: 'Manisnya', hint: 'Ambil aiskrim di Kampung Ceria' },
+  { id: 'penduduk', icon: '\u{1F44B}', name: 'Hai Jiran!', hint: 'Sapa penduduk Kampung Ceria' },
 ];
 const FURNITURE = new Set([BED_HEAD, BED_FOOT, SOFA, TABLE, TV, KITCHEN, WARDROBE, SHELF, RUG, PAINT_PINKY, PAINT_RAINBOW, FLOWERS, FENCE]);
 const earned = new Set(Array.isArray(save.stickers) ? save.stickers.filter((id) => STICKERS.some((st) => st.id === id)) : []);
@@ -3747,6 +3920,7 @@ function updateMini(dt) {
 }
 // Panel pilihan permainan: mula, kemudian terus sambung bermain
 function launchMini(start) {
+  if (seatRide) stopRide();
   gamesEl.classList.add('hidden');
   if (!playing) startPlaying();
   start();
@@ -3760,6 +3934,244 @@ document.getElementById('gameRace').addEventListener('click', () => launchMini((
 document.getElementById('gameSeek').addEventListener('click', () => launchMini(startSeek));
 document.getElementById('gameMatch').addEventListener('click', () => launchMini(startMatch));
 document.getElementById('gameStop').addEventListener('click', () => { stopMini(); gamesEl.classList.add('hidden'); });
+
+// ---------- Kampung dan Taman Tema: kedai, penduduk, permainan yang boleh dinaiki ----------
+// Kaunter kedai beri satu makanan percuma, kemudian perlu tunggu sekejap
+const shopReady = new Map();
+function useShop(hit) {
+  const item = BLOCKS[hit.id].gives, key = idx(hit.x, hit.y, hit.z), now = performance.now();
+  if ((shopReady.get(key) || 0) > now) { showToast('Sedang dibuat... tunggu sekejap ya'); return; }
+  if (mode === 'survival' && !addItem(item)) { showToast('Beg penuh!'); return; }
+  shopReady.set(key, now + 20000);
+  if (item === ICECREAM) award('aiskrim');
+  showToast('Nah, ' + ITEMS[item].name + ' percuma!');
+  beep(700, 0.08, 'triangle', 0.07);
+  setTimeout(() => beep(1050, 0.12, 'triangle', 0.07), 80);
+}
+
+// Model watak (sama bentuk dengan pemain lain dalam Main Bersama)
+function buildAvatarModel(c, h) {
+  const group = new THREE.Group(), inner = new THREE.Group();
+  inner.scale.setScalar(1 / 17);
+  const color = LOOK_COLORS[c];
+  const legs = [-2, 2].map((x) => {
+    const pivot = new THREE.Group();
+    pivot.position.set(x, 12, 0);
+    part(pivot, 3.6, 12, 3.6, 0x5a4a8a, 0, -6, 0);
+    inner.add(pivot);
+    return pivot;
+  });
+  part(inner, 8, 11, 4, color, 0, 17.5, 0);
+  part(inner, 3, 11, 3.6, color, -5.6, 17.5, 0);
+  part(inner, 3, 11, 3.6, color, 5.6, 17.5, 0);
+  part(inner, 8, 8, 8, 0xffd9b3, 0, 27, 0);
+  part(inner, 8.4, 2.4, 8.4, 0x8f566c, 0, 30.4, 0);
+  addHat(inner, h);
+  part(inner, 1.4, 1.4, 0.5, DARK, -1.8, 27.5, 4.1);
+  part(inner, 1.4, 1.4, 0.5, DARK, 1.8, 27.5, 4.1);
+  part(inner, 3, 0.8, 0.5, 0xff7fbf, 0, 25, 4.1);
+  group.add(inner);
+  return { group, legs };
+}
+// Penduduk Kampung Ceria: berjalan-jalan di dataran, berhenti dan melambai (melompat kecil) bila pemain dekat
+const GREETINGS = ['Hai! Selamat datang ke Kampung Ceria!', 'Nak aiskrim? Kedai di sebelah selatan dataran.', 'Cantiknya hari ini!',
+  'Dah naik roda Ferris di Taman Tema?', 'Jom main di Taman Tema Air!', 'Apa khabar, kawan?'];
+const villagers = [];
+[[122.5, 116.5, 0, 0], [132.5, 116.5, 1, 3], [122.5, 124.5, 2, 2], [132.5, 124.5, 3, 1], [127.5, 112.5, 4, 0], [127.5, 126.5, 5, 3]].forEach(([x, z, c, h]) => {
+  const model = buildAvatarModel(c, h);
+  const v = { ...model, x, y: VILLAGE_ZONE.y + 1, z, hx: x, hz: z, vx: 0, vy: 0, vz: 0, hw: 0.3, h: 1.8, onGround: false, floats: true,
+    yaw: Math.random() * 6, timer: Math.random() * 3, walking: false, phase: 0, wave: 0 };
+  v.group.userData.villager = v;
+  scene.add(v.group);
+  villagers.push(v);
+});
+function greet(v) {
+  award('penduduk');
+  showToast(GREETINGS[Math.floor(Math.random() * GREETINGS.length)]);
+  spawnHearts(v.x, v.y + 2, v.z);
+  if (v.onGround) v.vy = 5;
+  beep(880, 0.1, 'sine', 0.07);
+  setTimeout(() => beep(1100, 0.12, 'sine', 0.07), 90);
+}
+function updateVillager(v, dt) {
+  const far = (v.x - player.x) ** 2 + (v.z - player.z) ** 2;
+  v.group.visible = far < 80 * 80;
+  if (far > 50 * 50) return;
+  const near = far < 3.2 * 3.2;
+  v.timer -= dt;
+  if (near) {
+    // Pandang pemain dan melambai
+    v.walking = false;
+    v.yaw = Math.atan2(player.x - v.x, player.z - v.z);
+    v.wave -= dt;
+    if (v.wave <= 0 && v.onGround) { v.wave = 1.6; v.vy = 4; }
+  } else if (v.timer <= 0) {
+    v.timer = 1.5 + Math.random() * 3;
+    v.walking = Math.random() < 0.6;
+    if (v.walking) v.yaw = Math.hypot(v.hx - v.x, v.hz - v.z) > 5 ? Math.atan2(v.hx - v.x, v.hz - v.z) : Math.random() * Math.PI * 2;
+  }
+  const speed = v.walking ? 1.1 : 0;
+  v.vx = Math.sin(v.yaw) * speed; v.vz = Math.cos(v.yaw) * speed;
+  const px = v.x, pz = v.z;
+  if (moveEntity(v, dt) && v.onGround && speed) v.vy = 7;
+  v.group.position.set(v.x, v.y, v.z);
+  let diff = v.yaw - v.group.rotation.y;
+  diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+  v.group.rotation.y += diff * Math.min(1, dt * 8);
+  const moved = Math.hypot(v.x - px, v.z - pz);
+  v.phase += moved * 6;
+  const swing = moved > 1e-4 ? Math.sin(v.phase) * 0.6 : 0;
+  v.legs[0].rotation.x = swing; v.legs[1].rotation.x = -swing;
+}
+
+// Permainan yang boleh dinaiki. Setiap tempat duduk: { ride, group, x, y, z }; x, y, z = kedudukan kaki pemain yang duduk.
+const rides = [], rideSeats = [];
+let seatRide = null;
+function addSeat(ride, group) {
+  const seat = { ride, group, x: 0, y: 0, z: 0 };
+  group.userData.seat = seat;
+  rideSeats.push(seat);
+  return seat;
+}
+function boardSeat(seat) {
+  if (riding) riding = null;
+  if (seatRide) seatRide.group.visible = true;
+  seatRide = seat;
+  if (seat.ride.hideSeat) seat.group.visible = false; // gondola sendiri tak menghalang pemandangan
+  dismountBtn.classList.remove('hidden');
+  if (seat.ride.sticker) award(seat.ride.sticker);
+  showToast(seat.ride.name + '! Tekan Turun untuk turun');
+  beep(660, 0.08, 'sine', 0.07);
+}
+// Roda Ferris: lapan gondola pada roda berjejari 9 yang berpusing pada paksi z
+{
+  const f = THEME_ZONE.y, R = 9, cx = 58.5, cy = f + 12.5, cz = 130.5;
+  const ride = { name: 'Roda Ferris', sticker: 'roda', hideSeat: true, exit: [cx, f + 1, cz + 3.5], angle: 0 };
+  const root = new THREE.Group(), wheel = new THREE.Group();
+  root.position.set(cx, cy, cz);
+  root.add(wheel);
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
+    for (const dz of [-0.6, 0.6]) {
+      const seg = makeBox(2 * R * Math.sin(Math.PI / 16) * 1.06, 0.35, 0.3, i % 2 ? 0xff7fbf : 0xffffff);
+      seg.position.set(Math.cos(a) * R, Math.sin(a) * R, dz);
+      seg.rotation.z = a + Math.PI / 2;
+      wheel.add(seg);
+    }
+    if (i % 2 === 0) {
+      const spoke = makeBox(R, 0.16, 0.16, 0xffe14f);
+      spoke.position.set(Math.cos(a) * R / 2, Math.sin(a) * R / 2, 0);
+      spoke.rotation.z = a;
+      wheel.add(spoke);
+    }
+  }
+  wheel.add(makeBox(1.2, 1.2, 1.8, 0xff4fa3));
+  const cabins = [0xff7fbf, 0x6fb7ff, 0xffe14f, 0x6de38a, 0xc58cff, 0xff7a59, 0xffffff, 0xff4fa3].map((color) => {
+    const g = new THREE.Group();
+    const cabin = makeBox(1.5, 1.1, 1.5, color);
+    cabin.position.y = -1.1;
+    const roof = makeBox(1.7, 0.2, 1.7, 0xffffff);
+    roof.position.y = -0.3;
+    g.add(cabin, roof);
+    root.add(g);
+    return { g, seat: addSeat(ride, g) };
+  });
+  ride.update = (dt) => {
+    ride.angle += dt * 0.25;
+    wheel.rotation.z = ride.angle;
+    cabins.forEach((c, i) => {
+      const a = ride.angle + (i / 8) * Math.PI * 2, x = Math.cos(a) * R, y = Math.sin(a) * R;
+      c.g.position.set(x, y, 0); // gondola kekal tegak
+      c.seat.x = cx + x; c.seat.y = cy + y - 1.6; c.seat.z = cz;
+    });
+  };
+  scene.add(root);
+  rides.push(ride);
+}
+// Karusel: enam Pinky turun naik mengelilingi tiang berbumbung
+{
+  const f = THEME_ZONE.y, cx = 76.5, cz = 126.5, r = 3.3;
+  const ride = { name: 'Karusel Pinky', angle: 0 };
+  const root = new THREE.Group();
+  root.position.set(cx, f + 1, cz);
+  const pole = makeBox(0.5, 4.2, 0.5, 0xffe14f);
+  pole.position.y = 2.1;
+  root.add(pole);
+  [[9, 0xff7fbf, 4.3], [6.4, 0xffffff, 4.7], [3.6, 0xff7fbf, 5.1], [1.2, 0xffe14f, 5.6]].forEach(([size, color, y]) => {
+    const tier = makeBox(size, 0.4, size, color);
+    tier.position.y = y;
+    root.add(tier);
+  });
+  const horses = [0, 1, 2, 3, 4, 5].map((i) => {
+    const model = makePinkyModel();
+    const rod = makeBox(0.12, 4, 0.12, 0xffffff);
+    rod.position.y = 2;
+    model.group.add(rod);
+    root.add(model.group);
+    return { g: model.group, a: (i / 6) * Math.PI * 2, seat: addSeat(ride, model.group) };
+  });
+  ride.update = (dt, time) => {
+    ride.angle += dt * 0.7;
+    horses.forEach((hs) => {
+      const a = hs.a + ride.angle, bob = 0.35 + Math.sin(time * 2.2 + hs.a * 2) * 0.25;
+      hs.g.position.set(Math.cos(a) * r, bob, Math.sin(a) * r);
+      hs.g.rotation.y = -a; // menghadap arah pusingan
+      hs.seat.x = cx + Math.cos(a) * r; hs.seat.y = f + 1 + bob + 0.75; hs.seat.z = cz + Math.sin(a) * r;
+    });
+  };
+  scene.add(root);
+  rides.push(ride);
+}
+// Kereta api: kepala dan dua gerabak mengikut landasan segi empat
+{
+  const f = THEME_ZONE.y, x0 = 47.5, z0 = 115.5, x1 = 87.5, z1 = 147.5, wide = x1 - x0, deep = z1 - z0, total = 2 * (wide + deep);
+  const trackAt = (s) => {
+    s = ((s % total) + total) % total;
+    if (s < wide) return [x0 + s, z0, 1, 0];
+    s -= wide;
+    if (s < deep) return [x1, z0 + s, 0, 1];
+    s -= deep;
+    if (s < wide) return [x1 - s, z1, -1, 0];
+    return [x0, z1 - (s - wide), 0, -1];
+  };
+  const ride = { name: 'Kereta Api', sticker: 'keretapi', dist: 0 };
+  const cars = [0xff4fa3, 0x6fb7ff, 0xffe14f].map((color, i) => {
+    const g = new THREE.Group();
+    const body = makeBox(1.5, 1, 2.3, color);
+    body.position.y = 0.8;
+    g.add(body);
+    for (const [wx, wz] of [[-0.7, 0.75], [0.7, 0.75], [-0.7, -0.75], [0.7, -0.75]]) {
+      const wheel = makeBox(0.22, 0.5, 0.5, DARK);
+      wheel.position.set(wx, 0.25, wz);
+      g.add(wheel);
+    }
+    if (i === 0) {
+      // Kepala kereta api: kabin di belakang, cerobong di depan
+      const cab = makeBox(1.3, 0.9, 0.9, 0xff7fbf);
+      cab.position.set(0, 1.75, -0.6);
+      const funnel = makeBox(0.4, 0.8, 0.4, DARK);
+      funnel.position.set(0, 1.7, 0.7);
+      g.add(cab, funnel);
+    }
+    scene.add(g);
+    return { g, seat: addSeat(ride, g) };
+  });
+  ride.update = (dt) => {
+    ride.dist += dt * 4.5;
+    cars.forEach((c, i) => {
+      const [x, z, dx, dz] = trackAt(ride.dist - i * 2.9);
+      c.g.position.set(x, f + 1, z);
+      c.g.rotation.y = Math.atan2(dx, dz);
+      c.seat.x = x; c.seat.y = f + 2.3; c.seat.z = z;
+    });
+  };
+  rides.push(ride);
+}
+function updateParks(dt) {
+  const time = performance.now() / 1000;
+  for (const ride of rides) ride.update(dt, time);
+  for (const v of villagers) updateVillager(v, dt);
+}
 
 // ---------- Kawalan ----------
 const overlay = document.getElementById('overlay');
@@ -4323,7 +4735,7 @@ function frame(now) {
   }
   updateJellies(dt);
   netTick(dt);
-  if (playing && !bagOpen && !dead) { growTick(dt); updateMini(dt); }
+  if (playing && !bagOpen && !dead) { growTick(dt); updateMini(dt); updateParks(dt); }
   updateFireworks(dt);
   musicTick(dt);
   updateHearts(dt);
@@ -4371,7 +4783,7 @@ requestAnimationFrame(frame);
 window.__pink = { player, mobs, world, getBlock, setBlock, doPlace, breakBlock, get treasures() { return treasures; }, mining, inv, drops, addItem, heldId, RECIPES, craft, ITEMS, renderHotbar, damage, renderStats,
   get health() { return health; }, set health(v) { health = v; },
   get hunger() { return hunger; }, set hunger(v) { hunger = v; },
-  get dead() { return dead; }, jellies, lightAt, startRace, startSeek, startMatch, stopMini, best, get mini() { return mini; }, sprouts, plantSeed, tameCritter, earned, award, look: myLook, sleepInBed, launchFirework, rockets, sparks, parkSites, houseSites, houseVersion, net, avatars, netHost, netJoin, netLeave, guest, critters, GEN, UPGRADED, kickBall, interact, weather, setRain,
+  get dead() { return dead; }, jellies, lightAt, villagers, rides, rideSeats, boardSeat, stopRide, useShop, greet, get seatRide() { return seatRide; }, startRace, startSeek, startMatch, stopMini, best, get mini() { return mini; }, sprouts, plantSeed, tameCritter, earned, award, look: myLook, sleepInBed, launchFirework, rockets, sparks, parkSites, houseSites, houseVersion, net, avatars, netHost, netJoin, netLeave, guest, critters, GEN, UPGRADED, kickBall, interact, weather, setRain,
   get rainAmt() { return rainAmt; }, get rainbowAmt() { return rainbowAmt; },
   get ball() { return ball; }, get riding() { return riding; }, get goals() { return goals; }, get consoleMode() { return consoleMode; },
   get dayTime() { return dayTime; }, set dayTime(v) { dayTime = v; }, get daylight() { return daylight; },
