@@ -13,7 +13,8 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #ffd9ec; font-family: system-ui, sans-serif; }
-  body { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  html, body { overscroll-behavior: none; }
+  body { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
   #c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 
   #crosshair { position: fixed; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; pointer-events: none; display: none; }
@@ -37,7 +38,18 @@
   body.creative #bagBtn { display: none; }
   #bag { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(255, 190, 222, .6); padding: 10px; box-sizing: border-box; }
   #bag.hidden { display: none; }
-  #bag .card { max-width: none; width: auto; padding: 14px 16px; }
+  #bag .card { max-width: none; width: auto; padding: 12px 16px; touch-action: pan-y; }
+  #bag .card p { font-size: 12px; margin: 2px 0; }
+  #bagCols { display: flex; flex-wrap: wrap; gap: 6px 18px; justify-content: center; align-items: flex-start; }
+  #recipes { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; min-width: 300px; }
+  .recipe { display: flex; align-items: center; gap: 5px; background: #ffe3f1; border-radius: 9px; padding: 3px 4px 3px 8px; color: #c2307a; font: 700 13px system-ui, sans-serif; }
+  .part { display: inline-flex; align-items: center; gap: 2px; }
+  .part canvas { width: 22px; height: 22px; image-rendering: pixelated; border-radius: 3px; }
+  .part.lack { opacity: .4; }
+  .rname { margin-left: 4px; font-weight: 600; font-size: 12px; color: #7a4a63; text-align: left; }
+  .card .recipe button { display: inline-block; width: auto; margin: 0 0 0 auto; padding: 6px 12px; font-size: 13px; border-radius: 8px; background: #ff4fa3; color: #fff; }
+  .card .recipe button:disabled { background: #ecc9da; }
+  #bag #bagClose { margin-top: 8px; padding: 9px; }
   #bag h2 { margin: 0 0 4px; color: #ff4fa3; font-size: 20px; }
   #bagGrid { display: grid; grid-template-columns: repeat(9, auto); gap: 4px; margin-top: 8px; justify-content: center; }
   #bagGrid .slot { background: #ffe3f1; }
@@ -72,9 +84,18 @@
 
 <div id="bag" class="hidden">
   <div class="card">
-    <h2>Beg</h2>
-    <p>Ketik satu item, kemudian ketik slot lain untuk pindahkan. Baris atas ialah hotbar.</p>
-    <div id="bagGrid"></div>
+    <div id="bagCols">
+      <div>
+        <h2>Beg</h2>
+        <p>Ketik item, kemudian ketik slot lain untuk pindah.<br>Baris atas ialah hotbar.</p>
+        <div id="bagGrid"></div>
+      </div>
+      <div>
+        <h2>Buat</h2>
+        <p>Kumpul bahan, kemudian tekan Buat.</p>
+        <div id="recipes"></div>
+      </div>
+    </div>
     <button id="bagClose">Tutup</button>
   </div>
 </div>

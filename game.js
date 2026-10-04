@@ -877,6 +877,15 @@ function updateMining(dt) {
 // Survival: 27 slot (9 pertama = hotbar), block terhad. Kreatif: palet tetap, tanpa had.
 const INV_SIZE = 27, HOT_SIZE = 9, STACK = 64;
 const STARTER = [[BRICK, 20], [PLANKS, 20], [HEART, 10], [CANDY, 10], [GLOW, 10], [GLASS, 10]];
+// out: [block, bilangan]; in: senarai [block, bilangan]
+const RECIPES = [
+  { out: [PLANKS, 4], in: [[LOG, 1]] },
+  { out: [BRICK, 4], in: [[STONE, 4]] },
+  { out: [GLASS, 2], in: [[DIRT, 2], [STONE, 1]] },
+  { out: [CANDY, 2], in: [[LEAVES, 2], [GRASS, 1]] },
+  { out: [HEART, 2], in: [[LEAVES, 3], [PLANKS, 1]] },
+  { out: [GLOW, 1], in: [[LEAVES, 2], [STONE, 2]] },
+];
 let mode = save.mode === 'creative' ? 'creative' : 'survival';
 const inv = new Array(INV_SIZE).fill(null);
 if (Array.isArray(save.inv)) {
@@ -917,15 +926,18 @@ function addItem(id) {
   return true;
 }
 
+function blockIcon(id) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 16;
+  const tile = BLOCKS[id].tiles[2];
+  c.getContext('2d').drawImage(atlasCanvas, (tile % 4) * 16, (tile >> 2) * 16, 16, 16, 0, 0, 16, 16);
+  return c;
+}
 function makeSlot(item, onTap) {
   const slot = document.createElement('div');
   slot.className = 'slot';
   if (item) {
-    const c = document.createElement('canvas');
-    c.width = c.height = 16;
-    const tile = BLOCKS[item.id].tiles[2];
-    c.getContext('2d').drawImage(atlasCanvas, (tile % 4) * 16, (tile >> 2) * 16, 16, 16, 0, 0, 16, 16);
-    slot.appendChild(c);
+    slot.appendChild(blockIcon(item.id));
     if (mode === 'survival') {
       const cnt = document.createElement('span');
       cnt.className = 'cnt';
@@ -960,6 +972,59 @@ function showToast(text) {
   toastTimer = setTimeout(() => { toastEl.style.opacity = 0; }, 1200);
 }
 
+// ---------- Crafting ----------
+const recipesEl = document.getElementById('recipes');
+const countItem = (id) => inv.reduce((sum, it) => sum + (it && it.id === id ? it.count : 0), 0);
+const roomFor = (id) => inv.reduce((sum, it) => sum + (!it ? STACK : it.id === id ? STACK - it.count : 0), 0);
+const canCraft = (r) => r.in.every(([id, count]) => countItem(id) >= count) && roomFor(r.out[0]) >= r.out[1];
+function removeItems(id, count) {
+  for (let i = inv.length - 1; i >= 0 && count > 0; i--) {
+    const it = inv[i];
+    if (!it || it.id !== id) continue;
+    const take = Math.min(count, it.count);
+    it.count -= take;
+    count -= take;
+    if (it.count <= 0) inv[i] = null;
+  }
+}
+function craft(r) {
+  if (!canCraft(r)) return;
+  for (const [id, count] of r.in) removeItems(id, count);
+  for (let i = 0; i < r.out[1]; i++) addItem(r.out[0]);
+  bagPick = -1;
+  beep(700, 0.07, 'triangle', 0.07);
+  setTimeout(() => beep(1050, 0.1, 'triangle', 0.07), 70);
+  showToast('+' + r.out[1] + ' ' + BLOCKS[r.out[0]].name);
+  renderHotbar();
+}
+function recipePart(id, count, lack) {
+  const part = document.createElement('span');
+  part.className = lack ? 'part lack' : 'part';
+  part.title = BLOCKS[id].name;
+  part.append(blockIcon(id), '\u00d7' + count);
+  return part;
+}
+function renderRecipes() {
+  recipesEl.replaceChildren(...RECIPES.map((r) => {
+    const row = document.createElement('div');
+    row.className = 'recipe';
+    r.in.forEach(([id, count], i) => {
+      if (i) row.append('+');
+      row.append(recipePart(id, count, countItem(id) < count));
+    });
+    row.append('\u2192', recipePart(r.out[0], r.out[1], false));
+    const name = document.createElement('span');
+    name.className = 'rname';
+    name.textContent = BLOCKS[r.out[0]].name;
+    const btn = document.createElement('button');
+    btn.textContent = 'Buat';
+    btn.disabled = !canCraft(r);
+    btn.addEventListener('click', () => craft(r));
+    row.append(name, btn);
+    return row;
+  }));
+}
+
 // Beg: ketik satu slot, kemudian ketik slot lain untuk tukar tempat (atau gabung kalau sama)
 function renderBag() {
   bagGrid.replaceChildren(...inv.map((it, i) => {
@@ -968,6 +1033,7 @@ function renderBag() {
     el.classList.toggle('hot', i < HOT_SIZE);
     return el;
   }));
+  renderRecipes();
 }
 function tapBag(i) {
   if (bagPick < 0) {
@@ -1225,4 +1291,4 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // Untuk ujian dari konsol
-window.__pink = { player, mobs, world, getBlock, setBlock, doPlace, mining, inv, drops, addItem, heldId, get mode() { return mode; }, surfaceY, startPlaying, selectSlot, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, get pitch() { return pitch; }, set pitch(v) { pitch = v; } };
+window.__pink = { player, mobs, world, getBlock, setBlock, doPlace, mining, inv, drops, addItem, heldId, RECIPES, craft, get mode() { return mode; }, surfaceY, startPlaying, selectSlot, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, get pitch() { return pitch; }, set pitch(v) { pitch = v; } };
