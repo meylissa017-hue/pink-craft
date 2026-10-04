@@ -1176,34 +1176,45 @@ function wearTool() {
   saveDirty = true;
   renderHotbar();
 }
-// Pulangkan block yang sedang disasar (untuk kotak sasaran)
+// Berapa kali hit untuk pecahkan block: block keras 2 kali dengan tangan, 1 kali dengan alat yang betul
+function hitsNeeded(id) {
+  if (mode === 'creative') return 1;
+  const def = BLOCKS[id], tool = ITEMS[heldId()];
+  if (def.hard < 1) return 1;
+  return tool && tool.tool && tool.tool === def.tool ? 1 : 2;
+}
+const HIT_INTERVAL = 0.28; // saat antara hit bila butang ditahan
+let pendingStrike = false; // satu tekan pantas tetap dikira walaupun dilepas sebelum bingkai seterusnya
+// Setiap tekan = satu hit. Pulangkan block yang sedang disasar (untuk kotak sasaran).
 function updateMining(dt) {
   let res = null;
   if (holdPoint) res = aim(holdPoint.x, holdPoint.y);
   else if (playing && (locked() || consoleMode)) res = aim();
   const hit = res && !res.mob && !res.jelly ? res.hit : null;
-  const active = playing && (holdPoint || (mouseMining && locked()) || padMining);
+  const held = holdPoint || (mouseMining && locked()) || padMining;
+  const active = playing && (held || pendingStrike);
   const key = hit && hit.id !== BEDROCK ? idx(hit.x, hit.y, hit.z) : -1;
+  const strikeNow = pendingStrike;
+  pendingStrike = false;
+  mining.tick -= dt;
   if (!active || key < 0) {
-    // Butang dilepas: kekalkan retak sekejap, supaya tekan berulang kali pada block yang sama pun terkumpul
+    // Retak kekal sekejap selepas dilepas, supaya hit kedua pada block yang sama dikira
     mining.idle += dt;
     if (key !== mining.key || mining.idle > 1.5) resetMining();
     return hit;
   }
   mining.idle = 0;
-  if (key !== mining.key) { mining.key = key; mining.progress = 0; mining.tick = 0; }
-  const def = BLOCKS[hit.id], tool = ITEMS[heldId()];
-  let speed = mode === 'creative' ? 4 : 1;
-  if (tool && tool.tool && tool.tool === def.tool) speed *= tool.speed;
-  mining.progress += dt * speed / def.hard;
-  mining.tick -= dt;
-  if (mining.tick <= 0) { mining.tick = 0.2; beep(130 + Math.random() * 50, 0.05, 'square', 0.03); }
-  if (mining.progress >= 1) {
+  if (key !== mining.key) { mining.key = key; mining.progress = 0; }
+  if (!strikeNow && mining.tick > 0) return hit;
+  mining.tick = HIT_INTERVAL;
+  mining.progress += 1 / hitsNeeded(hit.id);
+  if (mining.progress >= 0.999) {
     breakBlock(hit);
     wearTool();
     resetMining();
     return null;
   }
+  beep(150, 0.06, 'square', 0.05);
   crack.material.map = crackTextures[Math.min(7, Math.floor(mining.progress * 8))];
   crack.position.set(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5);
   crack.visible = true;
@@ -1595,10 +1606,10 @@ function applyControls() {
     ? 'Kawalan: Butang konsol (tukar ke Ketik skrin)'
     : 'Kawalan: Ketik skrin (tukar ke Butang konsol)';
   document.getElementById('tips').innerHTML = !isTouch
-    ? 'WASD: jalan &bull; Space: lompat &bull; Tetikus: pandang<br>Tahan klik kiri: pecah &bull; Klik kanan: letak<br>1-9 / roda tetikus: pilih block &bull; E: beg &bull; Esc: menu'
+    ? 'WASD: jalan &bull; Space: lompat &bull; Tetikus: pandang<br>Klik kiri: pecah &bull; Klik kanan: letak<br>1-9 / roda tetikus: pilih block &bull; E: beg &bull; Esc: menu'
     : consoleMode
-      ? 'Kayu bedik kiri: jalan &bull; Seret skrin: pandang<br><b>A</b> lompat &bull; <b>B</b> tahan untuk pecah &bull; <b>X</b> letak / makan / usap &bull; <b>Y</b> beg<br>Halakan tanda + ke block'
-      : 'Kayu bedik kiri: jalan &bull; Seret skrin: pandang<br>Ketik: letak block &bull; Tekan &amp; tahan: pecah block<br>Ketik Pinky untuk usap';
+      ? 'Kayu bedik kiri: jalan &bull; Seret skrin: pandang<br><b>A</b> lompat &bull; <b>B</b> pecah &bull; <b>X</b> letak / makan / usap &bull; <b>Y</b> beg<br>Halakan tanda + ke block'
+      : 'Kayu bedik kiri: jalan &bull; Seret skrin: pandang<br>Ketik: letak block &bull; Tekan lama: pecah block<br>Ketik Pinky untuk usap';
 }
 document.getElementById('ctrlBtn').addEventListener('click', () => {
   consoleMode = !consoleMode;
@@ -1703,7 +1714,7 @@ canvas.addEventListener('pointerdown', (e) => {
   if (locked()) {
     if (e.button === 0) {
       const { mob, jelly } = aim();
-      if (mob) pet(mob); else if (jelly) hitJelly(jelly); else mouseMining = true;
+      if (mob) pet(mob); else if (jelly) hitJelly(jelly); else { mouseMining = true; pendingStrike = true; }
     } else if (e.button === 2) doPlace();
     return;
   }
@@ -1718,6 +1729,7 @@ canvas.addEventListener('pointerdown', (e) => {
     if (jelly) { hitJelly(jelly); return; }
     if (!hit) { showToast('Terlalu jauh - dekati block'); return; }
     holdPoint = p;
+    pendingStrike = true;
   }, HOLD_MS);
   pointers.set(e.pointerId, p);
 });
@@ -1792,7 +1804,7 @@ let placeRepeat = 0;
 padButton('jump', () => { jumpHeld = true; }, () => { jumpHeld = false; });
 padButton('padB', () => {
   const { mob, jelly } = aim();
-  if (mob) pet(mob); else if (jelly) hitJelly(jelly); else padMining = true;
+  if (mob) pet(mob); else if (jelly) hitJelly(jelly); else { padMining = true; pendingStrike = true; }
 }, () => { padMining = false; });
 padButton('padX', () => {
   doPlace();
