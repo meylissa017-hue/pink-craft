@@ -71,7 +71,7 @@ const HOTBAR = [GRASS, STONE, BRICK, PLANKS, HEART, CANDY, GLOW, GLASS, LEAVES];
 
 // ---------- Alat (item yang tak boleh diletak) ----------
 const PICK_W = 100, AXE_W = 101, SHOVEL_W = 102, PICK_S = 103, AXE_S = 104, SHOVEL_S = 105, PICK_C = 106;
-const APPLE = 110, CAKE = 111, JELLY = 112;
+const APPLE = 110, CAKE = 111, JELLY = 112, FIREWORK = 116;
 // speed: berapa kali lebih laju pada block yang sesuai; uses: ketahanan
 const ITEMS = {
   [PICK_W]: { name: 'Beliung Kayu', tool: 'pick', speed: 2, uses: 40, head: 'c2307a' },
@@ -107,6 +107,15 @@ const ITEMS = {
     },
   },
   // food: berapa mata lapar dipulihkan (bar penuh = 20)
+  [FIREWORK]: {
+    name: 'Bunga Api', firework: true,
+    pixel: (x, y) => {
+      if (x >= 6 && x <= 9 && y >= 4 && y <= 11) return y % 3 === 1 ? 'ffffff' : 'ff4fa3';
+      if (Math.abs(x - 7.5) <= 3.5 - (4 - y) * 1 && y >= 1 && y <= 3) return 'ffe14f';
+      if ((x === 7 || x === 8) && y >= 12 && y <= 14) return '8f566c';
+      return null;
+    },
+  },
   [JELLY]: {
     name: 'Jeli Manis', food: 3,
     pixel: (x, y) => {
@@ -415,6 +424,7 @@ function writeSave() {
       seed: save.seed, gen: pendingUpgrade ? 2 : GEN, base: pendingUpgrade || UPGRADED ? 1 : 0, fix: pendingUpgrade ? 1 : 0, edits: flat,
       player: [player.x, player.y, player.z, yaw, pitch], slot: selected,
       houses: houseSites, housesV: houseVersion, parks: parkSites,
+      stickers: [...earned], stats, look: myLook, music: musicOn ? 1 : 0, gift: 1,
       pets: mobs.filter((m) => m.tame).map((m) => [Math.round(m.x * 10) / 10, Math.round(m.y * 10) / 10, Math.round(m.z * 10) / 10]),
       mode, controls: consoleMode ? 'console' : 'touch', health, hunger, time: Math.round(dayTime), inv: inv.map((it) => (it ? (it.dur ? [it.id, it.count, it.dur] : [it.id, it.count]) : 0)),
     }));
@@ -1321,6 +1331,7 @@ function updateWeather(dt) {
   const ease = (value, target, rate) => (value < target ? Math.min(target, value + rate * dt) : Math.max(target, value - rate * dt));
   rainAmt = ease(rainAmt, weather.raining ? 1 : 0, 0.4);
   rainbowAmt = ease(rainbowAmt, weather.rainbow > 0 && daylight > 0.45 ? 1 : 0, 0.25);
+  if (rainbowAmt > 0.5) award('pelangi');
   rainSound(active ? rainAmt * 0.07 : 0);
 
   rainLines.visible = rainAmt > 0.01;
@@ -1760,6 +1771,7 @@ function hitJelly(j) {
   if (j.hp > 0) return;
   if (mode === 'survival') spawnDrop(Math.floor(j.x), Math.floor(j.y), Math.floor(j.z), JELLY);
   beep(900, 0.12, 'sine', 0.07);
+  award('jeli');
   removeJelly(jellies.indexOf(j), true);
 }
 function updateJellies(dt) {
@@ -1841,11 +1853,14 @@ function pet(m) {
 // Harta dalam peti: [item, minimum, maksimum, berat]
 const LOOT = [
   [KRISTAL, 1, 3, 30], [EMAS, 1, 2, 20], [PERMATA, 1, 1, 8], [CAKE, 1, 1, 12],
-  [APPLE, 2, 2, 15], [GLOW, 2, 2, 8], [RAINBOW, 3, 3, 7],
+  [APPLE, 2, 2, 15], [GLOW, 2, 2, 8], [RAINBOW, 3, 3, 7], [FIREWORK, 2, 3, 14],
 ];
 let treasures = 0;
 function openChest(x, y, z) {
   treasures++;
+  stats.chests++;
+  award('peti');
+  if (stats.chests >= 5) award('peti5');
   if (mode === 'survival') {
     const total = LOOT.reduce((sum, l) => sum + l[3], 0);
     for (let roll = 0, rolls = 3 + Math.floor(Math.random() * 3); roll < rolls; roll++) {
@@ -1878,7 +1893,9 @@ function doPlace(sx, sy) {
   const res = aim(sx, sy), hit = res.hit;
   if (interact(res)) return;
   if (hit && BLOCKS[hit.id].chest) { breakBlock(hit); return; } // tekan peti untuk buka
+  if (hit && (hit.id === BED_HEAD || hit.id === BED_FOOT) && !ITEMS[heldId()]) { sleepInBed(); return; }
   if (ITEMS[heldId()] && ITEMS[heldId()].food) { eat(); return; }
+  if (ITEMS[heldId()] && ITEMS[heldId()].firework) { launchFirework(); return; }
   if (!hit) { showToast('Terlalu jauh - dekati block'); return; }
   const x = hit.x + hit.face[0], y = hit.y + hit.face[1], z = hit.z + hit.face[2];
   if (!inBounds(x, y, z) || (world[idx(x, y, z)] !== AIR && world[idx(x, y, z)] !== WATER)) return;
@@ -1900,6 +1917,7 @@ const dismountBtn = document.getElementById('dismount');
 function tamePinky(m) {
   consumeHeld();
   m.tame = true;
+  award('jinak');
   m.bow.visible = true;
   saveDirty = true;
   spawnHearts(m.x, m.y + 1, m.z);
@@ -1911,6 +1929,7 @@ function tamePinky(m) {
 }
 function startRide(m) {
   riding = m;
+  award('tunggang');
   dismountBtn.classList.remove('hidden');
   spawnHearts(m.x, m.y + 1, m.z);
   showToast('Menunggang Pinky! Tekan Turun untuk turun');
@@ -1926,7 +1945,7 @@ function interact(res) {
   if (m) {
     if (m.isPinky && !m.tame && heldId() === APPLE) tamePinky(m);
     else if (m.isPinky && m.tame && riding !== m) startRide(m);
-    else pet(m);
+    else { pet(m); if (!m.isPinky) award('usap'); }
     return true;
   }
   if (res.jelly) { hitJelly(res.jelly); return true; }
@@ -2222,6 +2241,9 @@ function updateBall(dt) {
   // Gol: bola melepasi garisan di antara dua tiang
   if (b.z > 46.25 && b.z < 50.75 && b.y < FIELD_ZONE.y + 3.5 && (b.x < 62 || b.x > 83)) {
     goals++;
+    stats.goals++;
+    award('gol');
+    if (stats.goals >= 5) award('gol5');
     netSend({ t: 'g', n: goals });
     for (let i = 0; i < 4; i++) spawnHearts(b.x, b.y + 0.5 + i * 0.4, b.z);
     showToast('GOOOL! Jumlah gol: ' + goals);
@@ -2490,6 +2512,21 @@ const RECIPES = [
   { out: [GOLD_BLOCK, 1], in: [[EMAS, 4]] },
   { out: [TRAMP, 1], in: [[EMAS, 2], [PLANKS, 2]] },
   { out: [RAINBOW, 4], in: [[PERMATA, 1], [STONE, 4]] },
+  { out: [FIREWORK, 3], in: [[KRISTAL, 1], [LEAVES, 1]] },
+  // Perabot dan hiasan rumah
+  { out: [BED_HEAD, 1], in: [[PLANKS, 2], [LEAVES, 1]] },
+  { out: [BED_FOOT, 1], in: [[PLANKS, 2], [LEAVES, 1]] },
+  { out: [SOFA, 1], in: [[PLANKS, 2], [LEAVES, 2]] },
+  { out: [TABLE, 1], in: [[PLANKS, 3]] },
+  { out: [WARDROBE, 1], in: [[PLANKS, 4]] },
+  { out: [SHELF, 1], in: [[PLANKS, 3], [LEAVES, 1]] },
+  { out: [RUG, 2], in: [[LEAVES, 3]] },
+  { out: [TV, 1], in: [[GLASS, 1], [STONE, 2], [KRISTAL, 1]] },
+  { out: [KITCHEN, 1], in: [[STONE, 3], [GLASS, 1]] },
+  { out: [PAINT_PINKY, 1], in: [[PLANKS, 1], [EMAS, 1]] },
+  { out: [PAINT_RAINBOW, 1], in: [[PLANKS, 1], [KRISTAL, 1]] },
+  { out: [FLOWERS, 2], in: [[LEAVES, 2], [DIRT, 1]] },
+  { out: [FENCE, 4], in: [[PLANKS, 2], [LOG, 1]] },
 ];
 let mode = save.mode === 'creative' ? 'creative' : 'survival';
 const inv = new Array(INV_SIZE).fill(null);
@@ -2527,6 +2564,8 @@ const maxStack = (id) => (isTool(id) ? 1 : STACK);
 const newItem = (id) => (isTool(id) ? { id, count: 1, dur: ITEMS[id].uses } : { id, count: 1 });
 const hasRoom = (id) => inv.some((it) => !it || (it.id === id && it.count < maxStack(id)));
 function addItem(id) {
+  if (id === KRISTAL) award('kristal');
+  if (id === PERMATA) award('permata');
   let i = inv.findIndex((it) => it && it.id === id && it.count < maxStack(id));
   if (i < 0) i = inv.findIndex((it) => !it);
   if (i < 0) return false;
@@ -2625,6 +2664,8 @@ function craft(r) {
   beep(700, 0.07, 'triangle', 0.07);
   setTimeout(() => beep(1050, 0.1, 'triangle', 0.07), 70);
   showToast('+' + r.out[1] + ' ' + info(r.out[0]).name);
+  if (isTool(r.out[0])) award('alat');
+  if (FURNITURE.has(r.out[0])) award('perabot');
   renderHotbar();
 }
 function recipePart(id, count, lack) {
@@ -2800,6 +2841,7 @@ function eat() {
   const food = ITEMS[heldId()];
   if (hunger >= MAX_STAT) { showToast('Awak dah kenyang'); return; }
   hunger = Math.min(MAX_STAT, hunger + food.food);
+  if (food === ITEMS[CAKE]) award('kek');
   consumeHeld();
   renderStats();
   showToast('Sedap! ' + food.name);
@@ -2809,8 +2851,10 @@ function eat() {
 
 function updateStats(dt, moved) {
   // Jatuh lebih 3 block mencederakan
-  if (player.bounced) { player.bounced = false; fallPeak = player.y; beep(300, 0.12, 'sine', 0.06); }
-  if (player.inWater) fallPeak = player.y;
+  if (player.bounced) { player.bounced = false; fallPeak = player.y; beep(300, 0.12, 'sine', 0.06); award('trampolin'); }
+  if (player.inWater) { fallPeak = player.y; award('renang'); }
+  const tw = parkSites.tower;
+  if (tw && player.y >= tw[1] + 13.5 && Math.abs(player.x - tw[0] - 2.5) < 4 && Math.abs(player.z - tw[2] - 2.5) < 4) award('menara');
   if (player.onGround) {
     const fall = fallPeak - player.y;
     if (fall > 3.5) damage(Math.floor(fall - 3));
@@ -2843,6 +2887,255 @@ function updateStats(dt, moved) {
 // Kali pertama versi ini dimuat: beri sedikit bekalan makanan
 if (save.health === undefined) for (let i = 0; i < 3; i++) addItem(APPLE);
 renderStats();
+
+// ---------- Pelekat pencapaian ----------
+const STICKERS = [
+  { id: 'peti', icon: '\u{1F381}', name: 'Pemburu Harta', hint: 'Buka satu peti harta' },
+  { id: 'peti5', icon: '\u{1F451}', name: 'Raja Harta', hint: 'Buka 5 peti harta' },
+  { id: 'jinak', icon: '\u{1F380}', name: 'Kawan Pinky', hint: 'Jinakkan Pinky dengan epal' },
+  { id: 'tunggang', icon: '\u{1F437}', name: 'Penunggang Pinky', hint: 'Tunggang Pinky yang jinak' },
+  { id: 'usap', icon: '\u{1F430}', name: 'Penyayang Haiwan', hint: 'Usap arnab, ayam, ketam, rama-rama atau ikan' },
+  { id: 'gol', icon: '\u26BD', name: 'Gol Pertama', hint: 'Jaringkan satu gol' },
+  { id: 'gol5', icon: '\u{1F3C6}', name: 'Juara Bola', hint: 'Jaringkan 5 gol' },
+  { id: 'jeli', icon: '\u{1F36E}', name: 'Berani Malam', hint: 'Kalahkan satu Jeli Malam' },
+  { id: 'kristal', icon: '\u{1F48E}', name: 'Pelombong', hint: 'Dapatkan Kristal Pink' },
+  { id: 'permata', icon: '\u{1F308}', name: 'Permata Pelangi', hint: 'Dapatkan Permata Pelangi' },
+  { id: 'alat', icon: '\u26CF\uFE0F', name: 'Tukang', hint: 'Buat satu alat' },
+  { id: 'perabot', icon: '\u{1F6CB}\uFE0F', name: 'Penghias Rumah', hint: 'Buat satu perabot' },
+  { id: 'kek', icon: '\u{1F370}', name: 'Sedapnya!', hint: 'Makan Kek Pink' },
+  { id: 'renang', icon: '\u{1F3CA}', name: 'Perenang', hint: 'Berenang di laut atau kolam' },
+  { id: 'trampolin', icon: '\u{1F938}', name: 'Lompat Tinggi', hint: 'Melantun di trampolin' },
+  { id: 'menara', icon: '\u{1F5FC}', name: 'Puncak Menara', hint: 'Naik ke atas Menara Tinjau' },
+  { id: 'pelangi', icon: '\u{1F326}\uFE0F', name: 'Nampak Pelangi', hint: 'Tunggu pelangi selepas hujan' },
+  { id: 'tidur', icon: '\u{1F6CF}\uFE0F', name: 'Selamat Malam', hint: 'Tidur di katil waktu malam' },
+  { id: 'bunga_api', icon: '\u{1F386}', name: 'Pesta Bunga Api', hint: 'Lancarkan bunga api' },
+  { id: 'kawan', icon: '\u{1F91D}', name: 'Main Bersama', hint: 'Main dengan kawan dalam satu bilik' },
+];
+const FURNITURE = new Set([BED_HEAD, BED_FOOT, SOFA, TABLE, TV, KITCHEN, WARDROBE, SHELF, RUG, PAINT_PINKY, PAINT_RAINBOW, FLOWERS, FENCE]);
+const earned = new Set(Array.isArray(save.stickers) ? save.stickers.filter((id) => STICKERS.some((st) => st.id === id)) : []);
+const count = (v) => (Number.isInteger(v) && v > 0 ? v : 0);
+const stats = { chests: count(save.stats && save.stats.chests), goals: count(save.stats && save.stats.goals) };
+const stickersEl = document.getElementById('stickers'), stickerGrid = document.getElementById('stickerGrid');
+const stickersBtn = document.getElementById('stickersBtn'), stickerPop = document.getElementById('stickerPop');
+let stickerPopTimer = 0;
+function renderStickers() {
+  stickersBtn.textContent = 'Pelekat ' + earned.size + '/' + STICKERS.length;
+  stickerGrid.replaceChildren(...STICKERS.map((st) => {
+    const have = earned.has(st.id);
+    const el = document.createElement('div');
+    el.className = have ? 'sticker have' : 'sticker';
+    const icon = document.createElement('span');
+    icon.className = 'ico';
+    icon.textContent = have ? st.icon : '?';
+    const name = document.createElement('b');
+    name.textContent = st.name;
+    const hint = document.createElement('small');
+    hint.textContent = st.hint;
+    el.append(icon, name, hint);
+    return el;
+  }));
+}
+function award(id) {
+  if (earned.has(id)) return;
+  const st = STICKERS.find((s) => s.id === id);
+  if (!st) return;
+  earned.add(id);
+  saveDirty = true;
+  renderStickers();
+  stickerPop.textContent = st.icon + ' Pelekat baru: ' + st.name + '!';
+  stickerPop.classList.add('show');
+  clearTimeout(stickerPopTimer);
+  stickerPopTimer = setTimeout(() => stickerPop.classList.remove('show'), 3200);
+  [784, 988, 1175, 1568].forEach((freq, i) => setTimeout(() => beep(freq, 0.13, 'triangle', 0.06), 250 + i * 90));
+}
+stickersBtn.addEventListener('click', () => stickersEl.classList.remove('hidden'));
+document.getElementById('stickersClose').addEventListener('click', () => stickersEl.classList.add('hidden'));
+renderStickers();
+
+// ---------- Rupa pemain ----------
+const LOOK_COLORS = [0xff4fa3, 0x6fb7ff, 0xffe14f, 0x6de38a, 0xc58cff, 0xff7a59];
+const HATS = ['Tiada', 'Mahkota', 'Reben', 'Topi'];
+const myLook = {
+  c: save.look && Number.isInteger(save.look.c) && save.look.c >= 0 && save.look.c < LOOK_COLORS.length ? save.look.c : 0,
+  h: save.look && Number.isInteger(save.look.h) && save.look.h >= 0 && save.look.h < HATS.length ? save.look.h : 0,
+};
+// Topi pada model watak (unit sama dengan badan watak)
+function addHat(inner, h) {
+  if (h === 1) {
+    part(inner, 8.6, 1.4, 8.6, 0xffd633, 0, 32.3, 0);
+    for (const [x, z] of [[-3.5, -3.5], [3.5, -3.5], [-3.5, 3.5], [3.5, 3.5], [0, 3.5], [0, -3.5]]) part(inner, 1.6, 2, 1.6, 0xffd633, x, 34, z);
+  } else if (h === 2) {
+    part(inner, 3, 2.6, 1.6, 0xff2f6d, -2.4, 33, 0);
+    part(inner, 3, 2.6, 1.6, 0xff2f6d, 2.4, 33, 0);
+    part(inner, 1.8, 1.8, 2, 0xffffff, 0, 33, 0);
+  } else if (h === 3) {
+    part(inner, 8.8, 2.4, 8.8, 0x4a90e0, 0, 32.8, 0);
+    part(inner, 8.8, 0.8, 3.4, 0x4a90e0, 0, 31.8, 5.6);
+  }
+}
+const lookEl = document.getElementById('look'), lookPreview = document.getElementById('lookPreview');
+const hex = (n) => '#' + n.toString(16).padStart(6, '0');
+function drawLook() {
+  const ctx = lookPreview.getContext('2d'), u = 6;
+  ctx.clearRect(0, 0, lookPreview.width, lookPreview.height);
+  const box = (x, y, w, h, color) => { ctx.fillStyle = color; ctx.fillRect(x * u, y * u, w * u, h * u); };
+  box(5, 20, 3, 8, '#5a4a8a'); box(8, 20, 3, 8, '#5a4a8a');             // kaki
+  box(4, 11, 8, 9, hex(LOOK_COLORS[myLook.c]));                            // badan
+  box(1.5, 11, 2.5, 9, hex(LOOK_COLORS[myLook.c])); box(12, 11, 2.5, 9, hex(LOOK_COLORS[myLook.c])); // lengan
+  box(4, 4, 8, 7, '#ffd9b3'); box(4, 3, 8, 2, '#8f566c');                // kepala, rambut
+  box(5.5, 6.5, 1.3, 1.3, '#3a2460'); box(9.2, 6.5, 1.3, 1.3, '#3a2460'); box(6.7, 9, 2.6, 0.7, '#ff7fbf');
+  if (myLook.h === 1) { box(4, 1.6, 8, 1.6, '#ffd633'); box(4, 0.4, 1.4, 1.4, '#ffd633'); box(7.3, 0.4, 1.4, 1.4, '#ffd633'); box(10.6, 0.4, 1.4, 1.4, '#ffd633'); }
+  if (myLook.h === 2) { box(5, 0.8, 2.6, 2.4, '#ff2f6d'); box(8.4, 0.8, 2.6, 2.4, '#ff2f6d'); box(7.3, 1.3, 1.4, 1.4, '#ffffff'); }
+  if (myLook.h === 3) { box(3.8, 1.4, 8.4, 2.2, '#4a90e0'); box(3.8, 3.4, 10.5, 0.9, '#4a90e0'); }
+}
+function renderLook() {
+  document.getElementById('lookColors').replaceChildren(...LOOK_COLORS.map((color, i) => {
+    const b = document.createElement('button');
+    b.className = i === myLook.c ? 'swatch on' : 'swatch';
+    b.style.background = hex(color);
+    b.setAttribute('aria-label', 'Warna baju ' + (i + 1));
+    b.addEventListener('click', () => { myLook.c = i; saveDirty = true; renderLook(); });
+    return b;
+  }));
+  document.getElementById('lookHats').replaceChildren(...HATS.map((label, i) => {
+    const b = document.createElement('button');
+    b.className = i === myLook.h ? 'hat on' : 'hat';
+    b.textContent = label;
+    b.addEventListener('click', () => { myLook.h = i; saveDirty = true; renderLook(); });
+    return b;
+  }));
+  drawLook();
+}
+document.getElementById('lookBtn').addEventListener('click', () => { renderLook(); lookEl.classList.remove('hidden'); });
+document.getElementById('lookClose').addEventListener('click', () => lookEl.classList.add('hidden'));
+
+// ---------- Muzik latar ----------
+// Melodi pentatonik lembut yang berulang, dimainkan satu not pada satu masa
+let musicOn = save.music !== 0, musicTimer = 0, musicStep = 0;
+const MELODY = [0, 4, 7, 9, 7, 4, 2, 4, 0, 2, 4, 7, 9, 12, 9, 7];
+const musicBtn = document.getElementById('musicBtn');
+function musicTick(dt) {
+  if (!musicOn || !playing || bagOpen || dead || !actx) return;
+  musicTimer -= dt;
+  if (musicTimer > 0) return;
+  musicTimer = 0.46;
+  const shift = Math.floor(musicStep / MELODY.length) % 2 ? 5 : 0;
+  const semi = MELODY[musicStep % MELODY.length] + shift;
+  beep(261.63 * Math.pow(2, semi / 12), 0.42, 'sine', 0.018);
+  if (musicStep % 4 === 0) beep(130.81 * Math.pow(2, shift / 12), 0.8, 'triangle', 0.014);
+  musicStep++;
+}
+function renderMusic() { musicBtn.textContent = musicOn ? 'Muzik: Hidup' : 'Muzik: Mati'; }
+musicBtn.addEventListener('click', () => { musicOn = !musicOn; saveDirty = true; renderMusic(); });
+renderMusic();
+
+// ---------- Tidur di katil ----------
+const sleepEl = document.getElementById('sleep');
+function wakeUp() {
+  dayTime = DAY_LENGTH * 0.03;
+  health = MAX_STAT;
+  saveDirty = true;
+  renderStats();
+  showToast('Selamat pagi!');
+  if (net.role === 'host') netSend({ t: 't', time: Math.round(dayTime) });
+}
+function sleepInBed() {
+  if (daylight >= 0.5) { showToast('Katil untuk tidur waktu malam'); return; }
+  award('tidur');
+  sleepEl.style.opacity = 1;
+  setTimeout(() => {
+    // Dalam bilik kawan, hos yang menukar masa untuk semua
+    if (net.role === 'guest') netSend({ t: 'z' }); else wakeUp();
+    sleepEl.style.opacity = 0;
+  }, 900);
+}
+
+// ---------- Bunga api ----------
+const FW_COLORS = [0xff4fa3, 0xffe14f, 0x6fb7ff, 0x6de38a, 0xc58cff, 0xffffff, 0xff7a59];
+const starTex = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 16;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    if (Math.abs(x - 7.5) * Math.abs(y - 7.5) < 3 && Math.abs(x - 7.5) + Math.abs(y - 7.5) < 8) ctx.fillRect(x, y, 1, 1);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  return t;
+})();
+// Hati putih supaya warna percikan keluar tepat
+const whiteHeartTex = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 16;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) if (HEART_MAP[y][x] !== '.') ctx.fillRect(x, y, 1, 1);
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  return t;
+})();
+const rockets = [], sparks = [];
+function fwSprite(map, color, size) {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map, color, transparent: true, depthWrite: false, fog: false }));
+  sp.scale.setScalar(size);
+  sp.renderOrder = 5;
+  scene.add(sp);
+  return sp;
+}
+function spawnRocket(x, y, z) {
+  if (rockets.length > 12) return;
+  rockets.push({ sp: fwSprite(starTex, 0xffffff, 0.35), x, y, z, fuse: 0.85 + Math.random() * 0.3 });
+  beep(300, 0.5, 'sawtooth', 0.02);
+}
+function launchFirework() {
+  consumeHeld();
+  const x = player.x - Math.sin(yaw) * 2.5, z = player.z - Math.cos(yaw) * 2.5, y = player.y + 1;
+  spawnRocket(x, y, z);
+  netSend({ t: 'f', x: round2(x), y: round2(y), z: round2(z) });
+  award('bunga_api');
+}
+function explode(r) {
+  const a = FW_COLORS[Math.floor(Math.random() * FW_COLORS.length)], b = FW_COLORS[Math.floor(Math.random() * FW_COLORS.length)];
+  const tex = Math.random() < 0.5 ? whiteHeartTex : starTex;
+  for (let i = 0; i < 36; i++) {
+    // Arah rawak pada sfera
+    const u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, q = Math.sqrt(1 - u * u), speed = 5 + Math.random() * 3;
+    sparks.push({
+      sp: fwSprite(tex, i % 2 ? a : b, 0.45), x: r.x, y: r.y, z: r.z,
+      vx: q * Math.cos(th) * speed, vy: u * speed, vz: q * Math.sin(th) * speed, life: 1.2 + Math.random() * 0.5,
+    });
+  }
+  beep(90, 0.35, 'square', 0.07);
+  setTimeout(() => beep(1400, 0.25, 'sine', 0.03), 60);
+}
+function removeSprite(sp) {
+  scene.remove(sp);
+  sp.material.dispose();
+}
+function updateFireworks(dt) {
+  for (let i = rockets.length - 1; i >= 0; i--) {
+    const r = rockets[i];
+    r.y += 15 * dt;
+    r.fuse -= dt;
+    r.sp.position.set(r.x, r.y, r.z);
+    if (r.fuse <= 0) { explode(r); removeSprite(r.sp); rockets.splice(i, 1); }
+  }
+  const drag = Math.max(0, 1 - 1.6 * dt);
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const s = sparks[i];
+    s.life -= dt;
+    s.vx *= drag; s.vy = s.vy * drag - 4 * dt; s.vz *= drag;
+    s.x += s.vx * dt; s.y += s.vy * dt; s.z += s.vz * dt;
+    s.sp.position.set(s.x, s.y, s.z);
+    s.sp.material.opacity = Math.min(1, s.life * 1.5);
+    if (s.life <= 0) { removeSprite(s.sp); sparks.splice(i, 1); }
+  }
+}
+// Hadiah sekali: beberapa bunga api untuk dicuba
+if (!save.gift && !guest) for (let i = 0; i < 5; i++) addItem(FIREWORK);
 
 // ---------- Kawalan ----------
 const overlay = document.getElementById('overlay');
@@ -3112,10 +3405,10 @@ function updateNetUi() {
 }
 
 // Watak pemain lain: badan berwarna ikut giliran masuk
-function makeAvatar(id) {
+function makeAvatar(id, c, h) {
   const group = new THREE.Group(), inner = new THREE.Group();
   inner.scale.setScalar(1 / 17);
-  const color = AVATAR_COLORS[(id - 1) % AVATAR_COLORS.length];
+  const color = LOOK_COLORS[c];
   const legs = [-2, 2].map((x) => {
     const pivot = new THREE.Group();
     pivot.position.set(x, 12, 0);
@@ -3127,7 +3420,8 @@ function makeAvatar(id) {
   part(inner, 3, 11, 3.6, color, -5.6, 17.5, 0);
   part(inner, 3, 11, 3.6, color, 5.6, 17.5, 0);
   part(inner, 8, 8, 8, 0xffd9b3, 0, 27, 0);
-  part(inner, 8.4, 2.4, 8.4, color, 0, 30.4, 0);
+  part(inner, 8.4, 2.4, 8.4, 0x8f566c, 0, 30.4, 0); // rambut
+  addHat(inner, h);
   part(inner, 1.4, 1.4, 0.5, DARK, -1.8, 27.5, 4.1);
   part(inner, 1.4, 1.4, 0.5, DARK, 1.8, 27.5, 4.1);
   part(inner, 3, 0.8, 0.5, 0xff7fbf, 0, 25, 4.1);
@@ -3147,7 +3441,12 @@ function removeAvatar(id) {
 }
 function onPlayerMsg(m) {
   if (!Number.isInteger(m.id) || ![m.x, m.y, m.z, m.yaw].every(Number.isFinite) || m.id === net.myId) return;
-  const a = avatars.get(m.id) || makeAvatar(m.id);
+  // Rupa (warna baju, topi) dihantar bersama kedudukan; watak dibina semula kalau berubah
+  const c = Number.isInteger(m.c) && m.c >= 0 && m.c < LOOK_COLORS.length ? m.c : (m.id - 1) % LOOK_COLORS.length;
+  const h = Number.isInteger(m.h) && m.h >= 0 && m.h < HATS.length ? m.h : 0;
+  let a = avatars.get(m.id);
+  if (a && (a.c !== c || a.h !== h)) { removeAvatar(m.id); a = null; }
+  if (!a) { a = makeAvatar(m.id, c, h); a.c = c; a.h = h; award('kawan'); }
   a.tx = m.x; a.ty = m.y; a.tz = m.z; a.tyaw = m.yaw;
   if (a.fresh) { a.fresh = false; a.x = m.x; a.y = m.y; a.z = m.z; a.yaw = m.yaw; }
 }
@@ -3182,7 +3481,7 @@ function netSend(msg, except) {
   if (net.role === 'host') net.conns.forEach((conn, id) => { if (id !== except && conn.open) conn.send(msg); });
   else if (net.role === 'guest' && net.host && net.host.open) net.host.send(msg);
 }
-const playerMsg = (id) => ({ t: 'p', id, x: round2(player.x), y: round2(player.y), z: round2(player.z), yaw: round2(yaw) });
+const playerMsg = (id) => ({ t: 'p', id, x: round2(player.x), y: round2(player.y), z: round2(player.z), yaw: round2(yaw), c: myLook.c, h: myLook.h });
 
 function netHost() {
   if (typeof Peer === 'undefined') { setNetStatus('Main bersama tidak tersedia dalam versi ini.'); return; }
@@ -3228,7 +3527,7 @@ function hostData(conn, m) {
     // Tetamu sudah memuat dunia: hantar perubahan terkini dan kedudukan semua pemain
     conn.send({ t: 'edits', you: id, edits: flatEdits(), time: Math.round(dayTime) });
     conn.send(playerMsg(1));
-    avatars.forEach((a, aid) => { if (aid !== id) conn.send({ t: 'p', id: aid, x: a.tx, y: a.ty, z: a.tz, yaw: a.tyaw }); });
+    avatars.forEach((a, aid) => { if (aid !== id) conn.send({ t: 'p', id: aid, x: a.tx, y: a.ty, z: a.tz, yaw: a.tyaw, c: a.c, h: a.h }); });
     showToast('Kawan masuk ke bilik!');
   } else if (m.t === 'b') {
     if (!validEdit(m.i, m.id)) return;
@@ -3236,9 +3535,13 @@ function hostData(conn, m) {
     netSend({ t: 'b', i: m.i, id: m.id }, id);
   } else if (m.t === 'p') {
     if (![m.x, m.y, m.z, m.yaw].every(Number.isFinite)) return;
-    const msg = { t: 'p', id, x: m.x, y: m.y, z: m.z, yaw: m.yaw };
+    const msg = { t: 'p', id, x: m.x, y: m.y, z: m.z, yaw: m.yaw, c: m.c, h: m.h };
     onPlayerMsg(msg);
     netSend(msg, id);
+  } else if (m.t === 'z') {
+    if (daylight < 0.5) wakeUp();
+  } else if (m.t === 'f') {
+    if ([m.x, m.y, m.z].every(Number.isFinite)) { spawnRocket(m.x, m.y, m.z); netSend({ t: 'f', x: m.x, y: m.y, z: m.z }, id); }
   } else if (m.t === 'k' && ball && [m.vx, m.vy, m.vz].every(Number.isFinite)) {
     ball.vx = clamp(m.vx, -14, 14); ball.vy = clamp(m.vy, 0, 8); ball.vz = clamp(m.vz, -14, 14);
     ball.cool = 0.3;
@@ -3301,7 +3604,10 @@ function guestData(m) {
     if ([m.x, m.y, m.z].every(Number.isFinite)) net.ballTarget = m;
   } else if (m.t === 't') {
     if (Number.isFinite(m.time)) dayTime = m.time % DAY_LENGTH;
+  } else if (m.t === 'f') {
+    if ([m.x, m.y, m.z].every(Number.isFinite)) spawnRocket(m.x, m.y, m.z);
   } else if (m.t === 'g') {
+    award('gol');
     showToast('GOOOL! Jumlah gol: ' + (Number.isInteger(m.n) ? m.n : ''));
     [523, 659, 784, 1047].forEach((freq, i) => setTimeout(() => beep(freq, 0.16, 'square', 0.06), i * 110));
   }
@@ -3384,6 +3690,8 @@ function frame(now) {
   }
   updateJellies(dt);
   netTick(dt);
+  updateFireworks(dt);
+  musicTick(dt);
   updateHearts(dt);
   updateParticles(dt);
   if (playing && !bagOpen && !dead) updateDrops(dt, time);
@@ -3419,7 +3727,7 @@ requestAnimationFrame(frame);
 window.__pink = { player, mobs, world, getBlock, setBlock, doPlace, breakBlock, get treasures() { return treasures; }, mining, inv, drops, addItem, heldId, RECIPES, craft, ITEMS, renderHotbar, damage, renderStats,
   get health() { return health; }, set health(v) { health = v; },
   get hunger() { return hunger; }, set hunger(v) { hunger = v; },
-  get dead() { return dead; }, jellies, lightAt, parkSites, houseSites, houseVersion, net, avatars, netHost, netJoin, netLeave, guest, critters, GEN, UPGRADED, kickBall, interact, weather, setRain,
+  get dead() { return dead; }, jellies, lightAt, earned, award, look: myLook, sleepInBed, launchFirework, rockets, sparks, parkSites, houseSites, houseVersion, net, avatars, netHost, netJoin, netLeave, guest, critters, GEN, UPGRADED, kickBall, interact, weather, setRain,
   get rainAmt() { return rainAmt; }, get rainbowAmt() { return rainbowAmt; },
   get ball() { return ball; }, get riding() { return riding; }, get goals() { return goals; }, get consoleMode() { return consoleMode; },
   get dayTime() { return dayTime; }, set dayTime(v) { dayTime = v; }, get daylight() { return daylight; },

@@ -108,6 +108,30 @@
   #mpCode { display: block; width: 100%; box-sizing: border-box; margin-top: 12px; padding: 12px; border: 2px solid #6fb7ff; border-radius: 12px; font-size: 22px; font-weight: 700; text-align: center; letter-spacing: 6px; text-transform: uppercase; color: #3d6fb0; }
   #mpBadge { position: fixed; z-index: 3; left: calc(10px + env(safe-area-inset-left)); top: calc(40px + env(safe-area-inset-top)); padding: 4px 10px; border-radius: 999px; background: rgba(111, 183, 255, .9); color: #fff; font: 700 12px system-ui, sans-serif; pointer-events: none; }
   #mpBadge[hidden] { display: none; }
+  .row { display: flex; gap: 8px; }
+  .card .row button { flex: 1; margin-top: 12px; padding: 11px 4px; font-size: 13px; background: #fff0c9; color: #8a5a00; }
+  .panel { position: fixed; z-index: 4; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(255, 220, 240, .86); padding: 12px; box-sizing: border-box; }
+  .panel.hidden { display: none; }
+  .panel .card { max-width: 560px; touch-action: pan-y; }
+  .panel h2 { margin: 0 0 6px; color: #ff4fa3; font-size: 22px; }
+  .panel .close { background: #ff4fa3; color: #fff; }
+  #stickerGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 6px; max-height: calc(100vh - 170px); overflow-y: auto; touch-action: pan-y; }
+  .sticker { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 6px 4px; border-radius: 10px; background: #f3e6ee; color: #a58a9a; text-align: center; }
+  .sticker.have { background: #fff0c9; color: #8a5a00; }
+  .sticker .ico { font-size: 26px; line-height: 1.15; }
+  .sticker:not(.have) .ico { font-weight: 800; color: #c9b3c0; }
+  .sticker b { font-size: 12px; }
+  .sticker small { font-size: 10px; line-height: 1.2; }
+  #stickerPop { position: fixed; z-index: 5; left: 50%; top: calc(12px + env(safe-area-inset-top)); transform: translate(-50%, -160%); padding: 8px 16px; border-radius: 999px; background: #fff0c9; color: #8a5a00; border: 2px solid #ffd633; font: 700 15px system-ui, sans-serif; white-space: nowrap; transition: transform .35s; pointer-events: none; }
+  #stickerPop.show { transform: translate(-50%, 0); }
+  #lookRow { display: flex; gap: 16px; align-items: center; justify-content: center; flex-wrap: wrap; }
+  #lookPreview { width: 96px; height: 168px; image-rendering: pixelated; background: #ffe3f1; border-radius: 12px; }
+  #lookColors, #lookHats { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 8px; }
+  .card .swatch { width: 40px; height: 40px; margin: 0; padding: 0; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 2px #e6c9d8; }
+  .card .swatch.on { box-shadow: 0 0 0 3px #5a2a44; }
+  .card .hat { width: auto; margin: 0; padding: 8px 12px; font-size: 14px; background: #ffe3f1; color: #c2307a; }
+  .card .hat.on { background: #ff4fa3; color: #fff; }
+  #sleep { position: fixed; z-index: 5; inset: 0; background: #1b1030; opacity: 0; transition: opacity .8s; pointer-events: none; }
   #install { background: #c2307a; color: #fff; }
   #install[hidden] { display: none; }
   #saveStatus { position: fixed; z-index: 3; left: calc(10px + env(safe-area-inset-left)); top: calc(10px + env(safe-area-inset-top)); max-width: min(70vw, 430px); padding: 5px 8px; border-radius: 8px; background: rgba(255,255,255,.9); color: #7a1048; font-size: 11px; pointer-events: none; }
@@ -185,6 +209,7 @@
     <button id="upgradeBtn" hidden>Naik Taraf Dunia</button>
     <button id="modeBtn"></button>
     <button id="ctrlBtn"></button>
+    <div class="row"><button id="stickersBtn">Pelekat</button><button id="lookBtn">Rupa Saya</button><button id="musicBtn">Muzik</button></div>
     <button id="mpBtn">Main Bersama</button>
     <button id="newWorld">Dunia Baru</button>
   </div>
@@ -201,6 +226,33 @@
     <button id="mpClose">Tutup</button>
   </div>
 </div>
+
+<div id="stickers" class="panel hidden">
+  <div class="card">
+    <h2>Pelekat Saya</h2>
+    <div id="stickerGrid"></div>
+    <button id="stickersClose" class="close">Tutup</button>
+  </div>
+</div>
+
+<div id="look" class="panel hidden">
+  <div class="card">
+    <h2>Rupa Saya</h2>
+    <div id="lookRow">
+      <canvas id="lookPreview" width="96" height="168"></canvas>
+      <div>
+        <p>Warna baju</p>
+        <div id="lookColors"></div>
+        <p>Hiasan kepala</p>
+        <div id="lookHats"></div>
+      </div>
+    </div>
+    <p>Kawan nampak rupa ini bila main bersama.</p>
+    <button id="lookClose" class="close">Tutup</button>
+  </div>
+</div>
+<div id="stickerPop" role="status"></div>
+<div id="sleep"></div>
 
 <script src="peerjs.min.js"></script>
 <script type="module" src="game.js"></script>
