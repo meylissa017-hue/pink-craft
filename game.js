@@ -616,6 +616,7 @@ const DAY_LENGTH = 600; // saat untuk satu hari penuh
 let dayTime = Number.isFinite(save.time) ? save.time % DAY_LENGTH : DAY_LENGTH * 0.05;
 let daylight = 1, wasNight = false;
 const SKY_DAY = new THREE.Color(0xffd9ec), SKY_NIGHT = new THREE.Color(0x2b1a4a), SKY_DUSK = new THREE.Color(0xff9fb0);
+const SKY_RAIN = new THREE.Color(0xa9a6c8);
 const skyColor = new THREE.Color();
 const sky = new THREE.Group();
 {
@@ -633,9 +634,9 @@ function updateSky(dt) {
   const angle = (dayTime / DAY_LENGTH) * Math.PI * 2;
   const sunH = Math.sin(angle);
   const t = Math.max(0, Math.min(1, (sunH + 0.15) / 0.4)), smooth = t * t * (3 - 2 * t);
-  daylight = 0.22 + 0.78 * smooth;
+  daylight = (0.22 + 0.78 * smooth) * (1 - rainAmt * 0.3); // hujan memalapkan siang
   dayUniform.value = daylight;
-  skyColor.copy(SKY_NIGHT).lerp(SKY_DAY, smooth).lerp(SKY_DUSK, Math.max(0, 1 - Math.abs(sunH) / 0.3) * 0.55);
+  skyColor.copy(SKY_NIGHT).lerp(SKY_DAY, smooth).lerp(SKY_DUSK, Math.max(0, 1 - Math.abs(sunH) / 0.3) * 0.55).lerp(SKY_RAIN, rainAmt * 0.45);
   scene.background.copy(skyColor);
   scene.fog.color.copy(skyColor);
   const mobLight = Math.max(0.4, daylight);
@@ -648,6 +649,111 @@ function updateSky(dt) {
   const night = daylight < 0.5;
   if (night && !wasNight && playing && mode === 'survival') showToast('Malam tiba - Jeli Malam keluar! Pink Glow Block halau mereka');
   wasNight = night;
+}
+
+// ---------- Cuaca: hujan dan pelangi ----------
+// Hujan turun sekali-sekala; lepas hujan siang, pelangi muncul di langit utara.
+const weather = { raining: false, timer: 60 + Math.random() * 60, rainbow: 0 };
+let rainAmt = 0, rainbowAmt = 0; // 0..1, berubah perlahan-lahan
+const RAIN_DROPS = 700, RAIN_RANGE = 18, RAIN_SPEED = 22;
+const rainPos = new Float32Array(RAIN_DROPS * 6); // dua titik bagi setiap titisan
+const rainFloor = new Float32Array(RAIN_DROPS);  // aras bumbung/tanah tempat titisan berhenti
+const rainGeo = new THREE.BufferGeometry();
+rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
+const rainMat = new THREE.LineBasicMaterial({ color: 0x7fb6f5, transparent: true, opacity: 0 });
+const rainLines = new THREE.LineSegments(rainGeo, rainMat);
+rainLines.frustumCulled = false;
+rainLines.visible = false;
+rainLines.renderOrder = 4;
+scene.add(rainLines);
+function resetDrop(i, spread) {
+  const x = camera.position.x + (Math.random() - 0.5) * 2 * RAIN_RANGE;
+  const z = camera.position.z + (Math.random() - 0.5) * 2 * RAIN_RANGE;
+  const y = camera.position.y + (spread ? Math.random() * 22 - 6 : 10 + Math.random() * 8);
+  const bx = Math.floor(x), bz = Math.floor(z);
+  rainFloor[i] = bx >= 0 && bx < W && bz >= 0 && bz < D ? surfaceY(bx, bz) : 0;
+  rainPos.set([x, y, z, x + 0.06, y + 0.95, z], i * 6);
+}
+
+// Pelangi: enam jalur separuh bulatan, sentiasa di ufuk utara
+const rainbow = new THREE.Group();
+const rainbowMats = [0xff6b6b, 0xffb347, 0xffe14f, 0x6de38a, 0x6fb7ff, 0xc58cff].map((color, i) => {
+  const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, fog: false });
+  rainbow.add(new THREE.Mesh(new THREE.RingGeometry(96 - i * 3.5, 99.5 - i * 3.5, 48, 1, 0, Math.PI), mat));
+  return mat;
+});
+rainbow.visible = false;
+scene.add(rainbow);
+
+// Bunyi hujan: hingar lembut yang berulang
+let rainGain = null;
+function rainSound(level) {
+  if (!actx) return;
+  try {
+    if (!rainGain) {
+      const buf = actx.createBuffer(1, actx.sampleRate * 2, actx.sampleRate), data = buf.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+      const src = actx.createBufferSource(), filter = actx.createBiquadFilter();
+      src.buffer = buf;
+      src.loop = true;
+      filter.type = 'lowpass';
+      filter.frequency.value = 1400;
+      rainGain = actx.createGain();
+      rainGain.gain.value = 0;
+      src.connect(filter).connect(rainGain).connect(actx.destination);
+      src.start();
+    }
+    rainGain.gain.value = level;
+  } catch (e) { /* tiada audio: hujan tetap turun senyap */ }
+}
+
+function setRain(on) {
+  weather.raining = on;
+  if (on) {
+    weather.timer = 60 + Math.random() * 40;
+    weather.rainbow = 0;
+    for (let i = 0; i < RAIN_DROPS; i++) resetDrop(i, true);
+    showToast('Hujan turun!');
+  } else {
+    weather.timer = 200 + Math.random() * 200;
+    // Pelangi hanya selepas hujan waktu siang
+    if (daylight > 0.5) {
+      weather.rainbow = 100;
+      showToast('Hujan berhenti - tengok, pelangi!');
+    }
+  }
+}
+function updateWeather(dt) {
+  const active = playing && !bagOpen && !dead;
+  if (active) {
+    weather.timer -= dt;
+    if (weather.timer <= 0) setRain(!weather.raining);
+    if (weather.rainbow > 0) weather.rainbow -= dt;
+  }
+  const ease = (value, target, rate) => (value < target ? Math.min(target, value + rate * dt) : Math.max(target, value - rate * dt));
+  rainAmt = ease(rainAmt, weather.raining ? 1 : 0, 0.4);
+  rainbowAmt = ease(rainbowAmt, weather.rainbow > 0 && daylight > 0.45 ? 1 : 0, 0.25);
+  rainSound(active ? rainAmt * 0.07 : 0);
+
+  rainLines.visible = rainAmt > 0.01;
+  if (rainLines.visible) {
+    rainMat.opacity = 0.9 * rainAmt;
+    const fall = RAIN_SPEED * dt, cx = camera.position.x, cz = camera.position.z;
+    for (let i = 0; i < RAIN_DROPS; i++) {
+      const o = i * 6;
+      rainPos[o + 1] -= fall;
+      rainPos[o + 4] -= fall;
+      // Titisan berhenti di bumbung atau tanah, atau bila pemain sudah berjalan jauh
+      if (rainPos[o + 1] < rainFloor[i] || Math.abs(rainPos[o] - cx) > RAIN_RANGE || Math.abs(rainPos[o + 2] - cz) > RAIN_RANGE) resetDrop(i, false);
+    }
+    rainGeo.attributes.position.needsUpdate = true;
+  }
+
+  rainbow.visible = rainbowAmt > 0.01;
+  if (rainbow.visible) {
+    rainbow.position.set(camera.position.x, camera.position.y - 14, camera.position.z - 170);
+    for (const mat of rainbowMats) mat.opacity = 0.6 * rainbowAmt;
+  }
 }
 
 // ---------- Fizik ----------
@@ -2294,6 +2400,7 @@ function frame(now) {
   camera.rotation.set(pitch, yaw, 0);
   camera.updateMatrixWorld();
   updateSky(dt);
+  updateWeather(dt);
   // Warna biru bila kamera berada di dalam air
   const submerged = getBlock(Math.floor(camera.position.x), Math.floor(camera.position.y), Math.floor(camera.position.z)) === WATER;
   if (submerged !== wasSubmerged) { wasSubmerged = submerged; underwaterEl.style.opacity = submerged ? 1 : 0; }
@@ -2311,7 +2418,8 @@ requestAnimationFrame(frame);
 window.__pink = { player, mobs, world, getBlock, setBlock, doPlace, mining, inv, drops, addItem, heldId, RECIPES, craft, ITEMS, renderHotbar, damage, renderStats,
   get health() { return health; }, set health(v) { health = v; },
   get hunger() { return hunger; }, set hunger(v) { hunger = v; },
-  get dead() { return dead; }, jellies, lightAt, critters, GEN, kickBall, interact,
+  get dead() { return dead; }, jellies, lightAt, critters, GEN, kickBall, interact, weather, setRain,
+  get rainAmt() { return rainAmt; }, get rainbowAmt() { return rainbowAmt; },
   get ball() { return ball; }, get riding() { return riding; }, get goals() { return goals; }, get consoleMode() { return consoleMode; },
   get dayTime() { return dayTime; }, set dayTime(v) { dayTime = v; }, get daylight() { return daylight; },
   // Gambar dunia 3D sahaja (tanpa butang), untuk semakan rupa
