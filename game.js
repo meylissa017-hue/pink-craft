@@ -288,6 +288,10 @@ function loadSave() {
 const save = loadSave() || { seed: (Math.random() * 2147483647) | 0, gen: 2, edits: [], player: null };
 // Versi penjanaan dunia: simpanan lama tiada medan ini dan kekal dengan rupa bumi lama
 const GEN = save.gen === 2 ? 2 : 1;
+// Dunia lama yang dinaik taraf: rupa bumi dan pokok asal dikekalkan, kemudian laut, padang dan taman ditambah
+const UPGRADED = GEN === 2 && save.base === 1;
+let pendingUpgrade = false;
+const BACKUP_KEY = 'pinkcraft-save-sebelum-naik-taraf';
 const edits = new Map();
 let saveDirty = false;
 const saveStatus = document.getElementById('saveStatus');
@@ -299,7 +303,7 @@ function writeSave() {
   edits.forEach((id, i) => flat.push(i, id));
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
-      seed: save.seed, gen: GEN, edits: flat,
+      seed: save.seed, gen: pendingUpgrade ? 2 : GEN, base: pendingUpgrade || UPGRADED ? 1 : 0, fix: pendingUpgrade ? 1 : 0, edits: flat,
       player: [player.x, player.y, player.z, yaw, pitch], slot: selected,
       pets: mobs.filter((m) => m.tame).map((m) => [Math.round(m.x * 10) / 10, Math.round(m.y * 10) / 10, Math.round(m.z * 10) / 10]),
       mode, controls: consoleMode ? 'console' : 'touch', health, hunger, time: Math.round(dayTime), inv: inv.map((it) => (it ? (it.dur ? [it.id, it.count, it.dur] : [it.id, it.count]) : 0)),
@@ -333,9 +337,9 @@ const FIELD_ZONE = { x0: 60, x1: 84, z0: 40, z1: 56, y: 17 }; // y = aras block 
 const PLAY_ZONE = { x0: 40, x1: 56, z0: 66, z1: 82, y: 17 };
 const ZONES = [FIELD_ZONE, PLAY_ZONE];
 const zoneDist = (zn, x, z) => Math.max(zn.x0 - x, x - zn.x1, zn.z0 - z, z - zn.z1, 0);
-function terrainHeight(x, z, seed) {
+function terrainHeight(x, z, seed, gen) {
   let h = 12 + valueNoise(x / 28, z / 28, seed) * 10 + valueNoise(x / 10, z / 10, seed + 1) * 4;
-  if (GEN === 2) {
+  if (gen === 2) {
     // Tanah menurun ke laut di sebelah barat
     const t = Math.max(0, Math.min(1, (36 - x) / 20)), sea = t * t * (3 - 2 * t);
     h = h * (1 - sea) + 8 * sea;
@@ -353,21 +357,24 @@ function fillBox(x0, y0, z0, x1, y1, z1, id) {
       for (let x = x0; x <= x1; x++)
         if (inBounds(x, y, z)) world[idx(x, y, z)] = id;
 }
+// Lajur (x, z) yang berubah semasa naik taraf dunia lama
+const changedCols = new Uint8Array(W * D);
 function generateWorld(seed) {
+  const base = UPGRADED ? 1 : GEN; // rupa bumi asas
   for (let z = 0; z < D; z++) {
     for (let x = 0; x < W; x++) {
-      const h = terrainHeight(x, z, seed);
-      const beach = GEN === 2 && x < 40 && h <= SEA_LEVEL + 1;
+      const h = terrainHeight(x, z, seed, base);
+      const beach = base === 2 && x < 40 && h <= SEA_LEVEL + 1;
       for (let y = 0; y <= h; y++) {
         world[idx(x, y, z)] = y === 0 ? BEDROCK : y < h - 3 ? STONE : beach ? SAND : y < h ? DIRT : GRASS;
       }
-      if (GEN === 2) for (let y = h + 1; y <= SEA_LEVEL; y++) world[idx(x, y, z)] = WATER;
+      if (base === 2) for (let y = h + 1; y <= SEA_LEVEL; y++) world[idx(x, y, z)] = WATER;
     }
   }
   const rnd = mulberry32(seed);
   for (let i = 0; i < 70; i++) {
     const x = 3 + Math.floor(rnd() * (W - 6)), z = 3 + Math.floor(rnd() * (D - 6));
-    if (GEN === 2 && ZONES.some((zn) => zoneDist(zn, x, z) < 4)) continue;
+    if (base === 2 && ZONES.some((zn) => zoneDist(zn, x, z) < 4)) continue;
     const y = surfaceY(x, z);
     if (world[idx(x, y - 1, z)] !== GRASS) continue;
     const th = 4 + Math.floor(rnd() * 2);
@@ -383,9 +390,26 @@ function generateWorld(seed) {
     }
     for (let dy = 0; dy < th; dy++) world[idx(x, y + dy, z)] = LOG;
   }
+  if (UPGRADED) upgradeTerrain(seed);
   if (GEN === 2) buildLandmarks(seed);
   generateOres(seed);
   placeChests(seed);
+}
+// Naik taraf: bina semula hanya lajur yang berbeza antara dunia lama dan baru (laut, pantai, padang, taman).
+// Lajur lain kekal sama, jadi pokok dan binaan pemain di situ tak terusik.
+function upgradeTerrain(seed) {
+  for (let z = 0; z < D; z++) {
+    for (let x = 0; x < W; x++) {
+      const h = terrainHeight(x, z, seed, 2);
+      const beach = x < 40 && h <= SEA_LEVEL + 1;
+      if (h === terrainHeight(x, z, seed, 1) && !beach) continue;
+      changedCols[x + z * W] = 1;
+      for (let y = 0; y < H; y++) {
+        world[idx(x, y, z)] = y > h ? (y <= SEA_LEVEL ? WATER : AIR)
+          : y === 0 ? BEDROCK : y < h - 3 ? STONE : beach ? SAND : y < h ? DIRT : GRASS;
+      }
+    }
+  }
 }
 // Urat bijih: berjalan rawak dari satu titik, menggantikan batu sahaja
 function placeVeins(rnd, id, count, yMax, size) {
@@ -503,6 +527,9 @@ function surfaceY(x, z) {
 
 generateWorld(save.seed);
 for (let i = 0; i + 1 < save.edits.length; i += 2) {
+  // Sekali selepas naik taraf: lubang yang digali di kawasan yang berubah dibuang (supaya laut tak berlubang);
+  // block yang diletak pemain tetap dikekalkan
+  if (save.fix && save.edits[i + 1] === AIR && changedCols[save.edits[i] % (W * D)]) continue;
   world[save.edits[i]] = save.edits[i + 1];
   edits.set(save.edits[i], save.edits[i + 1]);
 }
@@ -2297,7 +2324,27 @@ document.getElementById('ctrlBtn').addEventListener('click', () => {
   applyControls();
 });
 applyControls();
-if (GEN < 2) document.getElementById('oldWorld').hidden = false;
+if (save.fix) saveDirty = true; // simpan segera hasil naik taraf
+const upgradeBtn = document.getElementById('upgradeBtn');
+if (GEN < 2) {
+  document.getElementById('oldWorld').hidden = false;
+  upgradeBtn.hidden = false;
+}
+upgradeBtn.addEventListener('click', () => {
+  if (!upgradeBtn.dataset.armed) {
+    upgradeBtn.dataset.armed = '1';
+    upgradeBtn.textContent = 'Pasti? Binaan di tepi barat, timur dan selatan mungkin berubah - tekan lagi';
+    return;
+  }
+  // Simpan salinan dunia lama dulu, kemudian tulis semula sebagai dunia yang dinaik taraf
+  saveDirty = true;
+  writeSave();
+  try { localStorage.setItem(BACKUP_KEY, localStorage.getItem(SAVE_KEY)); } catch (e) { /* tiada ruang untuk salinan: teruskan */ }
+  pendingUpgrade = true;
+  saveDirty = true;
+  writeSave();
+  location.reload();
+});
 
 const locked = () => document.pointerLockElement === canvas;
 
@@ -2546,7 +2593,7 @@ requestAnimationFrame(frame);
 window.__pink = { player, mobs, world, getBlock, setBlock, doPlace, breakBlock, get treasures() { return treasures; }, mining, inv, drops, addItem, heldId, RECIPES, craft, ITEMS, renderHotbar, damage, renderStats,
   get health() { return health; }, set health(v) { health = v; },
   get hunger() { return hunger; }, set hunger(v) { hunger = v; },
-  get dead() { return dead; }, jellies, lightAt, critters, GEN, kickBall, interact, weather, setRain,
+  get dead() { return dead; }, jellies, lightAt, critters, GEN, UPGRADED, kickBall, interact, weather, setRain,
   get rainAmt() { return rainAmt; }, get rainbowAmt() { return rainbowAmt; },
   get ball() { return ball; }, get riding() { return riding; }, get goals() { return goals; }, get consoleMode() { return consoleMode; },
   get dayTime() { return dayTime; }, set dayTime(v) { dayTime = v; }, get daylight() { return daylight; },

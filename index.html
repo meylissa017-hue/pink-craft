@@ -37,6 +37,8 @@
   #stats i { width: 18px; height: 16px; background-size: 100% 100%; image-rendering: pixelated; filter: drop-shadow(0 0 1px #5a2a44); }
   #dismount { position: fixed; z-index: 3; left: 50%; transform: translateX(-50%); top: calc(10px + env(safe-area-inset-top)); padding: 10px 22px; border: none; border-radius: 999px; background: #ff4fa3; color: #fff; font-size: 16px; font-weight: 700; touch-action: none; }
   #dismount.hidden { display: none; }
+  #upgradeBtn { background: #ffb347; color: #5a3200; font-size: 15px; }
+  #upgradeBtn[hidden] { display: none; }
   #oldWorld { background: #fff3d6; color: #7a4a00; border-radius: 10px; padding: 8px 10px; }
   #underwater { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .15s; background: rgba(70, 170, 235, .38); }
   #hurt { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .4s; background: radial-gradient(transparent 45%, rgba(255, 0, 70, .55)); }
@@ -164,9 +166,10 @@
     <h1>Pink Craft</h1>
     <p id="tips"></p>
     <p>Beri <b>Epal Sakura</b> pada Pinky untuk jadikan ia kawan, kemudian tekan padanya untuk tunggang!</p>
-    <p id="oldWorld" hidden>Dunia ini versi lama. Tekan <b>Dunia Baru</b> untuk dapat pantai, padang bola dan taman permainan.</p>
+    <p id="oldWorld" hidden>Dunia ini versi lama, belum ada pantai, padang bola dan taman permainan. Tekan <b>Naik Taraf Dunia</b> untuk tambah semuanya dan kekalkan binaan awak.</p>
     <button id="install" hidden>Pasang Aplikasi</button>
     <button id="play">Main</button>
+    <button id="upgradeBtn" hidden>Naik Taraf Dunia</button>
     <button id="modeBtn"></button>
     <button id="ctrlBtn"></button>
     <button id="newWorld">Dunia Baru</button>
