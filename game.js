@@ -11,7 +11,8 @@ const EYE = 1.62;
 const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, LOG = 4, LEAVES = 5, BRICK = 6, PLANKS = 7,
   HEART = 8, CANDY = 9, GLOW = 10, GLASS = 11, BEDROCK = 12,
   SAND = 13, WATER = 14, FIELD = 15, LINE = 16, NET = 17, TRAMP = 18, PALM = 19, RAINBOW = 20, YELLOW = 21, BLUE = 22,
-  CRYSTAL_ORE = 23, GOLD_ORE = 24, GEM_ORE = 25, CRYSTAL_BLOCK = 26, GOLD_BLOCK = 27, CHEST = 28, SAND_X = 29;
+  CRYSTAL_ORE = 23, GOLD_ORE = 24, GEM_ORE = 25, CRYSTAL_BLOCK = 26, GOLD_BLOCK = 27, CHEST = 28, SAND_X = 29,
+  BED_HEAD = 30, BED_FOOT = 31, SHELF = 32, RUG = 33, PAINT_PINKY = 34, PAINT_RAINBOW = 35, FLOWERS = 36;
 // Item yang digugurkan oleh bijih (ditakrif di sini kerana BLOCKS merujuknya)
 const KRISTAL = 113, EMAS = 114, PERMATA = 115;
 
@@ -50,6 +51,14 @@ const BLOCKS = {
   // chest: bila dipukul atau ditekan, pecah dan menggugurkan harta
   [CHEST]: { name: 'Peti Harta', hard: 0.5, tiles: [31, 31, 30], chest: true },
   [SAND_X]: { name: 'Pasir Bertanda X', hard: 0.5, tool: 'shovel', tiles: [32, 14, 14], drop: SAND },
+  // Perabot dan hiasan rumah
+  [BED_HEAD]: { name: 'Katil (bantal)', hard: 0.5, tiles: [33, 8, 35] },
+  [BED_FOOT]: { name: 'Katil (selimut)', hard: 0.5, tiles: [34, 8, 35] },
+  [SHELF]: { name: 'Rak Buku', hard: 0.5, tool: 'axe', tiles: [8, 8, 36] },
+  [RUG]: { name: 'Permaidani', hard: 0.5, tiles: [37, 8, 37] },
+  [PAINT_PINKY]: { name: 'Lukisan Pinky', hard: 0.5, tiles: [29, 29, 38] },
+  [PAINT_RAINBOW]: { name: 'Lukisan Pelangi', hard: 0.5, tiles: [29, 29, 39] },
+  [FLOWERS]: { name: 'Pokok Bunga', hard: 0.25, tiles: [40, 40, 40] },
 };
 const HOTBAR = [GRASS, STONE, BRICK, PLANKS, HEART, CANDY, GLOW, GLASS, LEAVES];
 
@@ -243,6 +252,38 @@ const TILES = [
   (x, y) => (edge(x, y) ? '5e3d22' : x === 7 || x === 8 ? 'ffd633' : y % 5 === 4 ? '7d5230' : '9b6a3c'),
   (x, y) => (x >= 3 && x <= 12 && (Math.abs(x - y) <= 1 || Math.abs(x + y - 15) <= 1)
     ? 'ff4f5e' : pick(x, y, 8, ['ffe9c4', 'ffe9c4', 'ffdcae', 'fff2d6'])),
+  // 33 katil: bantal
+  (x, y) => (edge(x, y) ? '9b6a3c' : x >= 3 && x <= 12 && y >= 2 && y <= 8 ? (x === 3 || x === 12 || y === 2 || y === 8 ? 'ffd6ec' : 'ffffff') : 'ff7fbf'),
+  // 34 katil: selimut bercorak hati kecil
+  (x, y) => (edge(x, y) ? '9b6a3c' : x % 5 < 2 && y % 5 < 2 ? 'ffd0f4' : 'ff7fbf'),
+  // 35 sisi katil
+  (x, y) => (y < 5 ? 'ff7fbf' : y < 7 ? 'ffffff' : (x < 3 || x > 12) ? '7d5230' : y < 11 ? '9b6a3c' : '5e3d22'),
+  // 36 rak buku
+  (x, y) => (edge(x, y) || y % 5 === 4 ? '7d5230'
+    : ['ff6b6b', 'ffb347', 'ffe14f', '6de38a', '6fb7ff', 'c58cff', 'ff7fe0'][(Math.floor(x / 2) + Math.floor(y / 5) * 3) % 7]),
+  // 37 permaidani
+  (x, y) => (x < 2 || y < 2 || x > 13 || y > 13 ? 'ff4fa3' : Math.abs(x - 7.5) + Math.abs(y - 7.5) < 4 ? 'ff9fd0' : 'ffe3f1'),
+  // 38 lukisan Pinky
+  (x, y) => {
+    if (x < 2 || y < 2 || x > 13 || y > 13) return 'd9a300';
+    if ((x === 6 || x === 9) && y === 8) return '5a2a44';
+    if ((x === 5 || x === 6 || x === 9 || x === 10) && y >= 3 && y <= 5) return 'ff7fbf';
+    return Math.hypot(x - 7.5, y - 8.5) < 4 ? 'ffa6d5' : 'bfe6ff';
+  },
+  // 39 lukisan pelangi
+  (x, y) => {
+    if (x < 2 || y < 2 || x > 13 || y > 13) return 'd9a300';
+    const d = Math.hypot(x - 7.5, y - 13);
+    if (d >= 4 && d < 10) return ['c58cff', '6fb7ff', '6de38a', 'ffe14f', 'ffb347', 'ff6b6b'][Math.min(5, Math.floor(d - 4))];
+    return 'bfe6ff';
+  },
+  // 40 pokok bunga
+  (x, y) => {
+    const fx = x % 5, fy = y % 5;
+    if (fx === 2 && fy === 2) return 'ffe14f';
+    if ((Math.abs(fx - 2) + Math.abs(fy - 2)) === 1) return Math.floor(x / 5 + y / 5) % 2 ? 'ff7fe0' : 'ffffff';
+    return pick(x, y, 10, ['5fd08a', '5fd08a', '49bd77']);
+  },
 ];
 const ATLAS_ROWS = 16; // atlas 4 lajur x 16 baris petak 16x16
 
@@ -299,7 +340,7 @@ function loadGuest() {
     }
     return {
       code: g.code,
-      world: { seed: s.seed, gen: s.gen === 2 ? 2 : 1, base: s.base === 1 ? 1 : 0, edits: s.edits, time: Number.isFinite(s.time) ? s.time : 0, player: null },
+      world: { seed: s.seed, gen: s.gen === 2 ? 2 : 1, base: s.base === 1 ? 1 : 0, edits: s.edits, time: Number.isFinite(s.time) ? s.time : 0, player: null, houses: s.houses },
     };
   } catch (e) { return null; }
 }
@@ -325,6 +366,7 @@ function writeSave() {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
       seed: save.seed, gen: pendingUpgrade ? 2 : GEN, base: pendingUpgrade || UPGRADED ? 1 : 0, fix: pendingUpgrade ? 1 : 0, edits: flat,
       player: [player.x, player.y, player.z, yaw, pitch], slot: selected,
+      houses: houseSites,
       pets: mobs.filter((m) => m.tame).map((m) => [Math.round(m.x * 10) / 10, Math.round(m.y * 10) / 10, Math.round(m.z * 10) / 10]),
       mode, controls: consoleMode ? 'console' : 'touch', health, hunger, time: Math.round(dayTime), inv: inv.map((it) => (it ? (it.dur ? [it.id, it.count, it.dur] : [it.id, it.count]) : 0)),
     }));
@@ -552,6 +594,129 @@ for (let i = 0; i + 1 < save.edits.length; i += 2) {
   if (save.fix && save.edits[i + 1] === AIR && changedCols[save.edits[i] % (W * D)]) continue;
   world[save.edits[i]] = save.edits[i + 1];
   edits.set(save.edits[i], save.edits[i + 1]);
+}
+
+// ---------- Rumah Humaira dan Alisa ----------
+// Dibina sekali sahaja bagi setiap dunia, di tapak rata berhampiran tempat mula yang belum disentuh pemain.
+// Block rumah direkod sebagai perubahan biasa, jadi ia disimpan dan boleh diubah suai macam binaan lain.
+const HOUSES = [
+  { name: 'Humaira House', wall: BRICK, pillar: CANDY, roof: [HEART, PLANKS, PLANKS, PLANKS], top: CRYSTAL_BLOCK, light: GLOW, path: CANDY, art: [PAINT_PINKY, PAINT_RAINBOW] },
+  { name: 'Alisa House', wall: LINE, pillar: BLUE, roof: [RAINBOW, RAINBOW, RAINBOW, RAINBOW], top: GOLD_BLOCK, light: CRYSTAL_BLOCK, path: YELLOW, art: [PAINT_RAINBOW, PAINT_PINKY] },
+];
+const HOUSE_SIZE = 7, HOUSE_GAP = 4;
+function put(x, y, z, id) {
+  if (!inBounds(x, y, z)) return;
+  const i = idx(x, y, z);
+  if (world[i] === id) return;
+  world[i] = id;
+  edits.set(i, id);
+}
+function fillPut(x0, y0, z0, x1, y1, z1, id) {
+  for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) put(x, y, z, id);
+}
+// Cari tapak untuk dua rumah bersebelahan: paling rata, tiada air, tiada binaan pemain,
+// dan di luar kawasan laut, padang dan taman (termasuk untuk dunia lama yang mungkin dinaik taraf nanti)
+function findHouseSite() {
+  const span = HOUSE_SIZE * 2 + HOUSE_GAP;
+  const ground = new Int8Array(W * D), blocked = new Uint8Array(W * D);
+  for (let z = 0; z < D; z++) {
+    for (let x = 0; x < W; x++) {
+      let g = -1;
+      for (let y = H - 1; y >= 0; y--) {
+        const id = world[idx(x, y, z)];
+        if (id === AIR || id === LEAVES || id === LOG || id === PALM) continue;
+        g = id === WATER ? -1 : y;
+        break;
+      }
+      ground[x + z * W] = g;
+      if (g < 0 || x < 42 || ZONES.some((zn) => zoneDist(zn, x, z) < 6)) blocked[x + z * W] = 1;
+    }
+  }
+  edits.forEach((id, i) => { blocked[i % (W * D)] = 1; });
+  let best = null;
+  for (let z0 = 4; z0 < D - HOUSE_SIZE - 8; z0++) {
+    for (let x0 = 44; x0 < W - span - 4; x0++) {
+      const dist = Math.hypot(x0 + span / 2 - W / 2, z0 + 5 - D / 2);
+      if (dist < 12 || dist > 34) continue;
+      let lo = 99, hi = -1, bad = false;
+      for (let z = z0 - 1; z <= z0 + HOUSE_SIZE + 3 && !bad; z++) {
+        for (let x = x0 - 1; x <= x0 + span; x++) {
+          if (blocked[x + z * W]) { bad = true; break; }
+          const g = ground[x + z * W];
+          if (g < lo) lo = g;
+          if (g > hi) hi = g;
+        }
+      }
+      if (bad || hi > H - 14) continue;
+      const score = (hi - lo) * 10 + dist;
+      if (!best || score < best.score) best = { x0, z0, f: hi, score };
+    }
+  }
+  return best;
+}
+// f = aras lantai; pintu di dinding selatan (z besar)
+function buildHouse(h, x0, f, z0) {
+  const x1 = x0 + HOUSE_SIZE - 1, z1 = z0 + HOUSE_SIZE - 1, door = x0 + 3;
+  // Kosongkan ruang (termasuk pokok) dan isi asas di bawah supaya rumah tak tergantung
+  for (let z = z0 - 1; z <= z1 + 4; z++) {
+    for (let x = x0 - 1; x <= x1 + 1; x++) {
+      fillPut(x, f + 1, z, x, f + 10, z, AIR);
+      for (let y = f - 5; y <= f; y++) {
+        const id = getBlock(x, y, z);
+        if (id === AIR || id === WATER || id === LEAVES || id === LOG) put(x, y, z, y === f ? GRASS : DIRT);
+      }
+    }
+  }
+  // Lantai dan permaidani
+  fillPut(x0, f, z0, x1, f, z1, PLANKS);
+  fillPut(x0 + 2, f, z0 + 2, x0 + 4, f, z0 + 4, RUG);
+  // Dinding dengan tiang penjuru
+  for (let y = f + 1; y <= f + 4; y++) {
+    for (let z = z0; z <= z1; z++) {
+      for (let x = x0; x <= x1; x++) {
+        if (x !== x0 && x !== x1 && z !== z0 && z !== z1) continue;
+        put(x, y, z, (x === x0 || x === x1) && (z === z0 || z === z1) ? h.pillar : h.wall);
+      }
+    }
+  }
+  // Pintu, tingkap, lukisan
+  fillPut(door, f + 1, z1, door, f + 2, z1, AIR);
+  put(x0 + 1, f + 2, z1, GLASS);
+  put(x0 + 5, f + 2, z1, GLASS);
+  fillPut(x0, f + 2, z0 + 2, x0, f + 3, z0 + 4, GLASS);
+  fillPut(x1, f + 2, z0 + 2, x1, f + 3, z0 + 4, GLASS);
+  put(x0 + 2, f + 3, z0, h.art[0]);
+  put(x0 + 4, f + 3, z0, h.art[1]);
+  // Bumbung bertingkat dengan cucur atap, lampu di siling, hiasan di puncak
+  for (let k = 0; k < 4; k++) fillPut(x0 - 1 + k, f + 5 + k, z0 - 1 + k, x1 + 1 - k, f + 5 + k, z1 + 1 - k, h.roof[k]);
+  put(x0 + 3, f + 9, z0 + 3, h.top);
+  put(x0 + 3, f + 5, z0 + 3, h.light);
+  // Perabot: katil, peti mainan, rak buku, pokok bunga
+  put(x0 + 1, f + 1, z0 + 1, BED_HEAD);
+  put(x0 + 1, f + 1, z0 + 2, BED_FOOT);
+  put(x0 + 2, f + 1, z0 + 1, CHEST);
+  fillPut(x0 + 5, f + 1, z0 + 1, x0 + 5, f + 2, z0 + 1, SHELF);
+  put(x0 + 1, f + 1, z0 + 5, FLOWERS);
+  put(x0 + 5, f + 1, z0 + 5, FLOWERS);
+  // Laluan depan dengan pokok bunga di kiri kanan pintu
+  fillPut(door, f, z1 + 1, door, f, z1 + 3, h.path);
+  put(door - 1, f + 1, z1 + 1, FLOWERS);
+  put(door + 1, f + 1, z1 + 1, FLOWERS);
+}
+// Tapak rumah: [x0, aras lantai, z0] bagi setiap rumah, untuk papan nama
+let houseSites = [];
+if (Array.isArray(save.houses)) {
+  houseSites = save.houses.filter((s) => Array.isArray(s) && s.length === 3 && s.every(Number.isInteger)).slice(0, HOUSES.length);
+} else if (!guest) {
+  const site = findHouseSite();
+  if (site) {
+    HOUSES.forEach((h, i) => {
+      const x0 = site.x0 + i * (HOUSE_SIZE + HOUSE_GAP);
+      buildHouse(h, x0, site.f, site.z0);
+      houseSites.push([x0, site.f, site.z0]);
+    });
+    saveDirty = true;
+  }
 }
 
 // ---------- Cahaya dari Pink Glow Block ----------
@@ -1645,6 +1810,61 @@ function updateCritter(c, dt, time) {
   c.group.rotation.y += diff * Math.min(1, dt * 8);
 }
 
+// ---------- Papan nama rumah ----------
+function makeSignTexture(text) {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 160;
+  const ctx = c.getContext('2d');
+  // Papan putih berbucu bulat dengan bingkai pink
+  ctx.fillStyle = '#ffffff';
+  ctx.strokeStyle = '#ff4fa3';
+  ctx.lineWidth = 12;
+  ctx.beginPath();
+  const r = 36, w = 500, hgt = 148;
+  ctx.moveTo(6 + r, 6);
+  ctx.arcTo(6 + w, 6, 6 + w, 6 + hgt, r);
+  ctx.arcTo(6 + w, 6 + hgt, 6, 6 + hgt, r);
+  ctx.arcTo(6, 6 + hgt, 6, 6, r);
+  ctx.arcTo(6, 6, 6 + w, 6, r);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  // Hati kecil di kiri dan kanan
+  for (const hx of [26, 422]) {
+    for (let y = 0; y < 16; y++) {
+      for (let x = 0; x < 16; x++) {
+        const ch = HEART_MAP[y][x];
+        if (ch === '.') continue;
+        ctx.fillStyle = ch === 'H' ? '#ff4fa3' : '#ffffff';
+        ctx.fillRect(hx + x * 4, 48 + y * 4, 4, 4);
+      }
+    }
+  }
+  // Nama, dikecilkan sampai muat di antara dua hati
+  ctx.fillStyle = '#ff4fa3';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  let size = 72;
+  do {
+    ctx.font = 'bold ' + size + 'px "Comic Sans MS", "Chalkboard SE", "Baloo 2", cursive, sans-serif';
+    size -= 2;
+  } while (ctx.measureText(text).width > 324 && size > 20);
+  ctx.fillText(text, 256, 84);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+houseSites.forEach((site, i) => {
+  if (!HOUSES[i]) return;
+  const sign = new THREE.Mesh(
+    new THREE.PlaneGeometry(3.6, 1.125),
+    new THREE.MeshBasicMaterial({ map: makeSignTexture(HOUSES[i].name), transparent: true })
+  );
+  // Di dinding depan, di atas pintu, di bawah cucur atap
+  sign.position.set(site[0] + 3.5, site[1] + 4, site[2] + HOUSE_SIZE + 0.04);
+  scene.add(sign);
+});
+
 // ---------- Bola sepak ----------
 const FIELD_CENTER = [72.5, FIELD_ZONE.y + 1, 48.5];
 let ball = null, goals = 0;
@@ -2704,7 +2924,7 @@ function hostData(conn, m) {
   if (!id || !m || typeof m !== 'object') return;
   if (m.t === 'join') {
     // Kali pertama: hantar seluruh dunia; tetamu akan memuat semula dengan dunia ini
-    conn.send({ t: 'world', world: { seed: save.seed, gen: GEN, base: UPGRADED ? 1 : 0, edits: flatEdits(), time: Math.round(dayTime) } });
+    conn.send({ t: 'world', world: { seed: save.seed, gen: GEN, base: UPGRADED ? 1 : 0, edits: flatEdits(), time: Math.round(dayTime), houses: houseSites } });
   } else if (m.t === 'hello') {
     // Tetamu sudah memuat dunia: hantar perubahan terkini dan kedudukan semua pemain
     conn.send({ t: 'edits', you: id, edits: flatEdits(), time: Math.round(dayTime) });
@@ -2900,7 +3120,7 @@ requestAnimationFrame(frame);
 window.__pink = { player, mobs, world, getBlock, setBlock, doPlace, breakBlock, get treasures() { return treasures; }, mining, inv, drops, addItem, heldId, RECIPES, craft, ITEMS, renderHotbar, damage, renderStats,
   get health() { return health; }, set health(v) { health = v; },
   get hunger() { return hunger; }, set hunger(v) { hunger = v; },
-  get dead() { return dead; }, jellies, lightAt, net, avatars, netHost, netJoin, netLeave, guest, critters, GEN, UPGRADED, kickBall, interact, weather, setRain,
+  get dead() { return dead; }, jellies, lightAt, houseSites, net, avatars, netHost, netJoin, netLeave, guest, critters, GEN, UPGRADED, kickBall, interact, weather, setRain,
   get rainAmt() { return rainAmt; }, get rainbowAmt() { return rainbowAmt; },
   get ball() { return ball; }, get riding() { return riding; }, get goals() { return goals; }, get consoleMode() { return consoleMode; },
   get dayTime() { return dayTime; }, set dayTime(v) { dayTime = v; }, get daylight() { return daylight; },
