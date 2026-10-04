@@ -1136,7 +1136,7 @@ function updateDrops(dt, time) {
 }
 
 // ---------- Melombong: tahan pada block sampai retak penuh ----------
-const mining = { key: -1, progress: 0, tick: 0 };
+const mining = { key: -1, progress: 0, tick: 0, idle: 0 };
 let holdPoint = null;      // jari yang sedang menahan (sentuh)
 let mouseMining = false;   // butang kiri ditahan (tetikus terkunci)
 let padMining = false;     // butang B ditahan (butang konsol)
@@ -1166,9 +1166,14 @@ function updateMining(dt) {
   else if (playing && (locked() || consoleMode)) res = aim();
   const hit = res && !res.mob && !res.jelly ? res.hit : null;
   const active = playing && (holdPoint || (mouseMining && locked()) || padMining);
-  if (!active || !hit || hit.id === BEDROCK) { resetMining(); return hit; }
-
-  const key = idx(hit.x, hit.y, hit.z);
+  const key = hit && hit.id !== BEDROCK ? idx(hit.x, hit.y, hit.z) : -1;
+  if (!active || key < 0) {
+    // Butang dilepas: kekalkan retak sekejap, supaya tekan berulang kali pada block yang sama pun terkumpul
+    mining.idle += dt;
+    if (key !== mining.key || mining.idle > 1.5) resetMining();
+    return hit;
+  }
+  mining.idle = 0;
   if (key !== mining.key) { mining.key = key; mining.progress = 0; mining.tick = 0; }
   const def = BLOCKS[hit.id], tool = ITEMS[heldId()];
   let speed = mode === 'creative' ? 4 : 1;
