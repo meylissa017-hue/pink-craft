@@ -1220,7 +1220,7 @@ if (Array.isArray(save.inv)) {
   STARTER.forEach(([id, count], i) => { inv[i] = { id, count }; });
 }
 let selected = Number.isInteger(save.slot) && save.slot >= 0 && save.slot < HOT_SIZE ? save.slot : 0;
-const hotbarEl = document.getElementById('hotbar');
+const hotbarEl = document.getElementById('hotbar'), bagBtn = document.getElementById('bagBtn');
 const toastEl = document.getElementById('toast');
 const bagEl = document.getElementById('bag'), bagGrid = document.getElementById('bagGrid');
 let toastTimer = 0;
@@ -1301,7 +1301,7 @@ function renderHotbar() {
     el.classList.toggle('on', i === selected);
     slots.push(el);
   }
-  hotbarEl.replaceChildren(...slots);
+  hotbarEl.replaceChildren(...slots, bagBtn); // butang Beg di hujung hotbar
   if (bagOpen) renderBag();
 }
 function selectSlot(i, quiet) {
@@ -1424,7 +1424,7 @@ function applyMode() {
   document.getElementById('modeBtn').textContent = mode === 'survival' ? 'Mod: Survival (tukar ke Kreatif)' : 'Mod: Kreatif (tukar ke Survival)';
   renderHotbar();
 }
-document.getElementById('bagBtn').addEventListener('click', () => { if (playing && mode === 'survival') setBag(!bagOpen); });
+bagBtn.addEventListener('click', () => { if (playing && mode === 'survival') setBag(!bagOpen); });
 document.getElementById('bagClose').addEventListener('click', () => setBag(false));
 document.getElementById('modeBtn').addEventListener('click', () => {
   mode = mode === 'survival' ? 'creative' : 'survival';
