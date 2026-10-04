@@ -30,6 +30,7 @@ const HOTBAR = [GRASS, STONE, BRICK, PLANKS, HEART, CANDY, GLOW, GLASS, LEAVES];
 
 // ---------- Alat (item yang tak boleh diletak) ----------
 const PICK_W = 100, AXE_W = 101, SHOVEL_W = 102, PICK_S = 103, AXE_S = 104, SHOVEL_S = 105;
+const APPLE = 110, CAKE = 111;
 // speed: berapa kali lebih laju pada block yang sesuai; uses: ketahanan
 const ITEMS = {
   [PICK_W]: { name: 'Beliung Kayu', tool: 'pick', speed: 2, uses: 40, head: 'c2307a' },
@@ -38,8 +39,31 @@ const ITEMS = {
   [PICK_S]: { name: 'Beliung Batu', tool: 'pick', speed: 4, uses: 100, head: '8a74a0' },
   [AXE_S]: { name: 'Kapak Batu', tool: 'axe', speed: 4, uses: 100, head: '8a74a0' },
   [SHOVEL_S]: { name: 'Penyodok Batu', tool: 'shovel', speed: 4, uses: 100, head: '8a74a0' },
+  // food: berapa mata lapar dipulihkan (bar penuh = 20)
+  [APPLE]: {
+    name: 'Epal Sakura', food: 4,
+    pixel: (x, y) => {
+      if (x === 8 && (y === 2 || y === 3)) return '8f566c';
+      if ((x === 9 && y === 2) || (x === 10 && (y === 1 || y === 2))) return '6de38a';
+      if ((x === 5 && y === 7) || (x === 6 && y === 6)) return 'ffffff';
+      return Math.hypot(x - 7.5, y - 9) < 5.2 ? 'ff4f7a' : null;
+    },
+  },
+  [CAKE]: {
+    name: 'Kek Pink', food: 10,
+    pixel: (x, y) => {
+      if (Math.hypot(x - 7.5, y - 3.5) < 1.6) return 'ff2f6d';
+      if (y === 14 && x >= 1 && x <= 14) return 'c7b4d6';
+      if (x < 2 || x > 13) return null;
+      if (y >= 5 && y <= 7) return 'ffffff';
+      if (y === 8 && (x === 3 || x === 6 || x === 10 || x === 12)) return 'ffffff';
+      if (y >= 8 && y <= 13) return y === 10 ? 'ff7fbf' : 'ffa6d5';
+      return null;
+    },
+  },
 };
 const info = (id) => BLOCKS[id] || ITEMS[id];
+const isTool = (id) => !!(ITEMS[id] && ITEMS[id].tool);
 // Bentuk kepala alat pada ikon 16x16 (pemegang serong dari kiri bawah ke kanan atas)
 const TOOL_HEAD = {
   pick: (x, y) => { const j = y - 4; return j >= -4 && j <= 4 && (x === 11 + j || x === 10 + j) || (y - 5 >= -4 && y - 5 <= 4 && x === 11 + y - 5); },
@@ -47,6 +71,12 @@ const TOOL_HEAD = {
   shovel: (x, y) => (Math.abs(x - 12) + Math.abs(y - 3) <= 3 && x !== 9 && y !== 6) || (x >= 12 && x <= 14 && y >= 1 && y <= 2),
 };
 const toolHandle = (x, y) => y >= 5 && y <= 13 && (x === 15 - y || x === 16 - y);
+// Warna piksel ikon item (hex), atau null kalau kosong
+function itemPixel(item, x, y) {
+  if (item.pixel) return item.pixel(x, y);
+  if (TOOL_HEAD[item.tool](x, y)) return item.head;
+  return toolHandle(x, y) ? '8f566c' : null;
+}
 
 // ---------- Rawak ----------
 function hash(x, y, s) {
@@ -170,7 +200,7 @@ function writeSave() {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
       seed: save.seed, edits: flat,
       player: [player.x, player.y, player.z, yaw, pitch], slot: selected,
-      mode, inv: inv.map((it) => (it ? (it.dur ? [it.id, it.count, it.dur] : [it.id, it.count]) : 0)),
+      mode, health, hunger, inv: inv.map((it) => (it ? (it.dur ? [it.id, it.count, it.dur] : [it.id, it.count]) : 0)),
     }));
   } catch (e) { /* storan penuh atau disekat: game tetap jalan tanpa simpan */ }
 }
@@ -430,9 +460,11 @@ function updatePlayer(dt) {
   const sin = Math.sin(yaw), cos = Math.cos(yaw);
   player.vx = (-sin * f + cos * s) * WALK_SPEED;
   player.vz = (-cos * f - sin * s) * WALK_SPEED;
-  if ((jumpHeld || keys.Space) && player.onGround) player.vy = JUMP_SPEED;
+  if ((jumpHeld || keys.Space) && player.onGround) { player.vy = JUMP_SPEED; exhaust += 0.03; }
 
+  const px0 = player.x, pz0 = player.z;
   const blocked = moveEntity(player, dt);
+  updateStats(dt, Math.hypot(player.x - px0, player.z - pz0));
 
   // Lompat automatik bila terlanggar block setinggi satu
   if (blocked && player.onGround && len > 0.1) {
@@ -692,13 +724,19 @@ function pet(m) {
 function breakBlock(hit) {
   setBlock(hit.x, hit.y, hit.z, AIR);
   burst(hit.x, hit.y, hit.z, hit.id);
-  if (mode === 'survival') spawnDrop(hit.x, hit.y, hit.z, hit.id);
+  if (mode === 'survival') {
+    spawnDrop(hit.x, hit.y, hit.z, hit.id);
+    // Bunga sakura kadang-kadang gugurkan epal
+    if (hit.id === LEAVES && Math.random() < 0.2) spawnDrop(hit.x, hit.y, hit.z, APPLE);
+    exhaust += 0.03;
+  }
   beep(180, 0.09, 'square', 0.05);
 }
 
 function doPlace(sx, sy) {
   const { hit, mob } = aim(sx, sy);
   if (mob) { pet(mob); return; }
+  if (ITEMS[heldId()] && ITEMS[heldId()].food) { eat(); return; }
   if (!hit) { showToast('Terlalu jauh - dekati block'); return; }
   const x = hit.x + hit.face[0], y = hit.y + hit.face[1], z = hit.z + hit.face[2];
   if (!inBounds(x, y, z) || world[idx(x, y, z)] !== AIR) return;
@@ -819,13 +857,31 @@ function dropGeo(id) {
   dropGeos[id] = g;
   return g;
 }
+const dropSpriteMats = {};
+// Item bukan block (makanan, alat) jatuh sebagai gambar rata
+function dropSpriteMat(id) {
+  if (!dropSpriteMats[id]) {
+    const t = new THREE.CanvasTexture(blockIcon(id));
+    t.magFilter = t.minFilter = THREE.NearestFilter;
+    t.generateMipmaps = false;
+    t.colorSpace = THREE.SRGBColorSpace;
+    dropSpriteMats[id] = new THREE.SpriteMaterial({ map: t, alphaTest: 0.5 });
+  }
+  return dropSpriteMats[id];
+}
 function removeDrop(i) {
   scene.remove(drops[i].mesh);
   drops.splice(i, 1);
 }
 function spawnDrop(x, y, z, id) {
   if (drops.length >= 150) removeDrop(0);
-  const mesh = new THREE.Mesh(dropGeo(id), BLOCKS[id].transparent ? glassMat : opaqueMat);
+  let mesh;
+  if (ITEMS[id]) {
+    mesh = new THREE.Sprite(dropSpriteMat(id));
+    mesh.scale.setScalar(0.35);
+  } else {
+    mesh = new THREE.Mesh(dropGeo(id), BLOCKS[id].transparent ? glassMat : opaqueMat);
+  }
   scene.add(mesh);
   drops.push({
     mesh, id, x: x + 0.5, y: y + 0.4, z: z + 0.5,
@@ -873,7 +929,7 @@ function resetMining() {
 function wearTool() {
   if (mode !== 'survival') return;
   const it = inv[selected];
-  if (!it || !ITEMS[it.id]) return;
+  if (!it || !it.dur) return;
   it.dur--;
   if (it.dur <= 0) {
     inv[selected] = null;
@@ -896,7 +952,7 @@ function updateMining(dt) {
   if (key !== mining.key) { mining.key = key; mining.progress = 0; mining.tick = 0; }
   const def = BLOCKS[hit.id], tool = ITEMS[heldId()];
   let speed = mode === 'creative' ? 4 : 1;
-  if (tool && tool.tool === def.tool) speed *= tool.speed;
+  if (tool && tool.tool && tool.tool === def.tool) speed *= tool.speed;
   mining.progress += dt * speed / def.hard;
   mining.tick -= dt;
   if (mining.tick <= 0) { mining.tick = 0.2; beep(130 + Math.random() * 50, 0.05, 'square', 0.03); }
@@ -930,13 +986,14 @@ const RECIPES = [
   { out: [CANDY, 2], in: [[LEAVES, 2], [GRASS, 1]] },
   { out: [HEART, 2], in: [[LEAVES, 3], [PLANKS, 1]] },
   { out: [GLOW, 1], in: [[LEAVES, 2], [STONE, 2]] },
+  { out: [CAKE, 1], in: [[APPLE, 2], [CANDY, 1]] },
 ];
 let mode = save.mode === 'creative' ? 'creative' : 'survival';
 const inv = new Array(INV_SIZE).fill(null);
 if (Array.isArray(save.inv)) {
   save.inv.slice(0, INV_SIZE).forEach((it, i) => {
     if (!Array.isArray(it) || !info(it[0]) || !(it[1] > 0)) return;
-    inv[i] = ITEMS[it[0]]
+    inv[i] = isTool(it[0])
       ? { id: it[0], count: 1, dur: it[2] > 0 ? Math.min(it[2], ITEMS[it[0]].uses) : ITEMS[it[0]].uses }
       : { id: it[0], count: Math.min(STACK, it[1]) };
   });
@@ -963,8 +1020,8 @@ function consumeHeld() {
   saveDirty = true;
   renderHotbar();
 }
-const maxStack = (id) => (ITEMS[id] ? 1 : STACK);
-const newItem = (id) => (ITEMS[id] ? { id, count: 1, dur: ITEMS[id].uses } : { id, count: 1 });
+const maxStack = (id) => (isTool(id) ? 1 : STACK);
+const newItem = (id) => (isTool(id) ? { id, count: 1, dur: ITEMS[id].uses } : { id, count: 1 });
 const hasRoom = (id) => inv.some((it) => !it || (it.id === id && it.count < maxStack(id)));
 function addItem(id) {
   let i = inv.findIndex((it) => it && it.id === id && it.count < maxStack(id));
@@ -982,12 +1039,11 @@ function blockIcon(id) {
   const ctx = c.getContext('2d');
   const tool = ITEMS[id];
   if (tool) {
-    const head = TOOL_HEAD[tool.tool];
     for (let y = 0; y < 16; y++) {
       for (let x = 0; x < 16; x++) {
-        const isHead = head(x, y);
-        if (!isHead && !toolHandle(x, y)) continue;
-        ctx.fillStyle = '#' + (isHead ? tool.head : '8f566c');
+        const hex = itemPixel(tool, x, y);
+        if (!hex) continue;
+        ctx.fillStyle = '#' + hex;
         ctx.fillRect(x, y, 1, 1);
       }
     }
@@ -1002,7 +1058,7 @@ function makeSlot(item, onTap) {
   slot.className = 'slot';
   if (item) {
     slot.appendChild(blockIcon(item.id));
-    if (ITEMS[item.id]) {
+    if (item.dur) {
       // Bar ketahanan alat
       const bar = document.createElement('div'), fill = document.createElement('div');
       bar.className = 'dur';
@@ -1113,7 +1169,7 @@ function tapBag(i) {
     bagPick = -1;
   } else {
     const a = inv[bagPick], b = inv[i];
-    if (b && a.id === b.id && !ITEMS[a.id]) {
+    if (b && a.id === b.id && !isTool(a.id)) {
       const move = Math.min(a.count, STACK - b.count);
       b.count += move;
       a.count -= move;
@@ -1157,6 +1213,129 @@ document.getElementById('modeBtn').addEventListener('click', () => {
   applyMode();
 });
 applyMode();
+
+// ---------- Nyawa & lapar (survival) ----------
+const MAX_STAT = 20; // 10 ikon, setiap satu bernilai 2
+const stat = (v) => (Number.isFinite(v) ? Math.max(0, Math.min(MAX_STAT, Math.round(v))) : MAX_STAT);
+let health = stat(save.health) || MAX_STAT, hunger = stat(save.hunger);
+let exhaust = 0, regenTimer = 0, starveTimer = 0, fallPeak = player.y, dead = false;
+const hpEl = document.getElementById('hp'), foodEl = document.getElementById('food');
+const hurtEl = document.getElementById('hurt'), deathEl = document.getElementById('death');
+
+const HP_ICON = ['.XX...XX.', 'XXXX.XXXX', 'XXXXXXXXX', 'XXXXXXXXX', '.XXXXXXX.', '..XXXXX..', '...XXX...', '....X....'];
+const FOOD_ICON = ['....X....', '...XX....', '.XXX.XXX.', 'XXXXXXXXX', 'XXXXXXXXX', 'XXXXXXXXX', '.XXXXXXX.', '..XX.XX..'];
+// level: 0 kosong, 1 separuh, 2 penuh
+function statImage(map, color, level) {
+  const c = document.createElement('canvas');
+  c.width = 9; c.height = 8;
+  const ctx = c.getContext('2d');
+  for (let y = 0; y < 8; y++) {
+    for (let x = 0; x < 9; x++) {
+      if (map[y][x] !== 'X') continue;
+      ctx.fillStyle = level === 2 || (level === 1 && x <= 4) ? color : 'rgba(90, 42, 68, 0.6)';
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
+  return 'url(' + c.toDataURL() + ')';
+}
+const HP_IMG = [0, 1, 2].map((level) => statImage(HP_ICON, '#ff2f6d', level));
+const FOOD_IMG = [0, 1, 2].map((level) => statImage(FOOD_ICON, '#ffb347', level));
+for (const el of [hpEl, foodEl]) for (let i = 0; i < 10; i++) el.appendChild(document.createElement('i'));
+function drawStat(el, value, imgs) {
+  [...el.children].forEach((icon, i) => {
+    const level = value >= i * 2 + 2 ? 2 : value === i * 2 + 1 ? 1 : 0;
+    if (icon.dataset.level === String(level)) return;
+    icon.dataset.level = level;
+    icon.style.backgroundImage = imgs[level];
+  });
+}
+function renderStats() {
+  drawStat(hpEl, health, HP_IMG);
+  drawStat(foodEl, hunger, FOOD_IMG);
+}
+
+function damage(amount) {
+  if (mode !== 'survival' || dead || amount <= 0) return;
+  health = Math.max(0, health - amount);
+  saveDirty = true;
+  renderStats();
+  hurtEl.style.opacity = 1;
+  setTimeout(() => { hurtEl.style.opacity = 0; }, 150);
+  beep(220, 0.15, 'sawtooth', 0.07);
+  if (health <= 0) die();
+}
+function die() {
+  dead = true;
+  joy.x = joy.y = 0;
+  jumpHeld = false;
+  holdPoint = null;
+  mouseMining = false;
+  deathEl.classList.remove('hidden');
+  if (locked()) document.exitPointerLock();
+}
+// Barang kekal dalam inventori; pemain kembali ke tempat mula dengan nyawa penuh
+function revive() {
+  respawn();
+  fallPeak = player.y;
+  health = hunger = MAX_STAT;
+  exhaust = 0;
+  dead = false;
+  saveDirty = true;
+  renderStats();
+  deathEl.classList.add('hidden');
+  if (!isTouch && playing && canvas.requestPointerLock) {
+    const p = canvas.requestPointerLock();
+    if (p && p.catch) p.catch(() => {});
+  }
+}
+document.getElementById('revive').addEventListener('click', revive);
+
+function eat() {
+  if (mode !== 'survival') return;
+  const food = ITEMS[heldId()];
+  if (hunger >= MAX_STAT) { showToast('Awak dah kenyang'); return; }
+  hunger = Math.min(MAX_STAT, hunger + food.food);
+  consumeHeld();
+  renderStats();
+  showToast('Sedap! ' + food.name);
+  beep(520, 0.07, 'square', 0.05);
+  setTimeout(() => beep(620, 0.07, 'square', 0.05), 110);
+}
+
+function updateStats(dt, moved) {
+  // Jatuh lebih 3 block mencederakan
+  if (player.onGround) {
+    const fall = fallPeak - player.y;
+    if (fall > 3.5) damage(Math.floor(fall - 3));
+    fallPeak = player.y;
+  } else {
+    fallPeak = Math.max(fallPeak, player.y);
+  }
+  if (mode !== 'survival' || dead) return;
+
+  // Bergerak, melompat dan melombong memenatkan; penat penuh = hilang satu mata lapar
+  exhaust += moved * 0.008 + dt * 0.003;
+  if (exhaust >= 1) {
+    exhaust -= 1;
+    if (hunger > 0) { hunger--; saveDirty = true; renderStats(); }
+  }
+  // Kenyang: nyawa pulih sendiri. Lapar habis: nyawa susut (tak sampai mati).
+  if (hunger >= 16 && health < MAX_STAT) {
+    regenTimer += dt;
+    if (regenTimer >= 3) { regenTimer = 0; health++; exhaust += 0.3; saveDirty = true; renderStats(); }
+  } else {
+    regenTimer = 0;
+  }
+  if (hunger === 0 && health > 2) {
+    starveTimer += dt;
+    if (starveTimer >= 4) { starveTimer = 0; damage(1); }
+  } else {
+    starveTimer = 0;
+  }
+}
+// Kali pertama versi ini dimuat: beri sedikit bekalan makanan
+if (save.health === undefined) for (let i = 0; i < 3; i++) addItem(APPLE);
+renderStats();
 
 // ---------- Kawalan ----------
 const overlay = document.getElementById('overlay');
@@ -1215,7 +1394,7 @@ newWorldBtn.addEventListener('click', () => {
 });
 document.addEventListener('pointerlockchange', () => {
   document.body.classList.toggle('locked', locked());
-  if (!locked() && playing && !isTouch && !bagOpen) pause();
+  if (!locked() && playing && !isTouch && !bagOpen && !dead) pause();
 });
 
 window.addEventListener('keydown', (e) => {
@@ -1333,7 +1512,7 @@ function frame(now) {
   last = now;
   const time = now / 1000;
 
-  if (playing && !bagOpen) updatePlayer(dt);
+  if (playing && !bagOpen && !dead) updatePlayer(dt);
   for (const m of mobs) updateMob(m, dt, time);
   updateHearts(dt);
   updateParticles(dt);
@@ -1362,4 +1541,7 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // Untuk ujian dari konsol
-window.__pink = { player, mobs, world, getBlock, setBlock, doPlace, mining, inv, drops, addItem, heldId, RECIPES, craft, ITEMS, renderHotbar, get mode() { return mode; }, surfaceY, startPlaying, selectSlot, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, get pitch() { return pitch; }, set pitch(v) { pitch = v; } };
+window.__pink = { player, mobs, world, getBlock, setBlock, doPlace, mining, inv, drops, addItem, heldId, RECIPES, craft, ITEMS, renderHotbar, damage, renderStats,
+  get health() { return health; }, set health(v) { health = v; },
+  get hunger() { return hunger; }, set hunger(v) { hunger = v; },
+  get dead() { return dead; }, get mode() { return mode; }, surfaceY, startPlaying, selectSlot, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, get pitch() { return pitch; }, set pitch(v) { pitch = v; } };
