@@ -549,6 +549,7 @@ function snapshotWorld() {
   const flat = [];
   edits.forEach((id, i) => flat.push(i, id));
   return {
+      inventoryV: 2,
       storage: Object.fromEntries(Object.entries(storage).filter(([key]) => world[Number(key)] === STORAGE).map(([key, list]) => [key, list.map(it => it ? [it.id, it.count, ...(it.dur ? [it.dur] : [])] : 0)])), home: homeMarker,
       seed: save.seed, size: 2, gen: pendingUpgrade ? 2 : GEN, base: pendingUpgrade || UPGRADED ? 1 : 0, fix: pendingUpgrade ? 1 : 0, edits: flat,
       player: [player.x, player.y, player.z, yaw, pitch], slot: selected,
@@ -3018,8 +3019,8 @@ function updateMining(dt) {
 }
 
 // ---------- Inventori & hotbar ----------
-// Survival: 27 slot (9 pertama = hotbar), block terhad. Kreatif: palet tetap, tanpa had.
-const INV_SIZE = 27, HOT_SIZE = 9, STACK = 64;
+// 36 slot (9 pertama = hotbar). Kreatif menggunakan item pilihan dalam beg tanpa menghabiskan block.
+const INV_SIZE = 36, HOT_SIZE = 9, STACK = 64;
 const STARTER = [[BRICK, 20], [PLANKS, 20], [HEART, 10], [CANDY, 10], [GLOW, 10], [GLASS, 10]];
 // out: [block, bilangan]; in: senarai [block, bilangan]
 const RECIPES = [
@@ -3077,6 +3078,17 @@ const bagEl = document.getElementById('bag'), bagGrid = document.getElementById(
 let toastTimer = 0;
 let bagOpen = false, bagPick = -1;
 let activeStorage = null;
+let catalogPick = null;
+const CATALOG = [...Object.keys(BLOCKS), ...Object.keys(ITEMS)].map(Number).filter(id => ![BEDROCK,WATER,CHEST].includes(id));
+function fillInventory() {
+  for (const it of inv) if (it) { it.count = isTool(it.id) ? 1 : STACK; if(isTool(it.id)) it.dur=ITEMS[it.id].uses; }
+  const missing = CATALOG.filter(id => !inv.some(it=>it?.id===id));
+  for(let i=0;i<inv.length;i++) if(!inv[i] && missing.length) {
+    const id=missing.shift(); inv[i]=isTool(id)?{id,count:1,dur:ITEMS[id].uses}:{id,count:STACK};
+  }
+  saveDirty=true;
+}
+if (save.inventoryV !== 2) fillInventory();
 const storage = Object.create(null);
 if (save.storage && typeof save.storage === 'object') for (const [key, list] of Object.entries(save.storage)) {
   if (world[Number(key)] !== STORAGE || !Array.isArray(list)) continue;
@@ -3088,7 +3100,7 @@ if (save.storage && typeof save.storage === 'object') for (const [key, list] of 
 }
 let homeMarker = Array.isArray(save.home) && save.home.length === 3 && save.home.every(Number.isInteger) ? save.home : null;
 
-const slotItem = (i) => (mode === 'creative' ? { id: HOTBAR[i], count: 0 } : inv[i]);
+const slotItem = (i) => inv[i];
 function heldId() {
   const it = slotItem(selected);
   return it ? it.id : AIR;
@@ -3148,7 +3160,7 @@ function makeSlot(item, onTap) {
       fill.style.width = Math.round(100 * item.dur / ITEMS[item.id].uses) + '%';
       bar.appendChild(fill);
       slot.appendChild(bar);
-    } else if (mode === 'survival') {
+    } else if (item.count > 0) {
       const cnt = document.createElement('span');
       cnt.className = 'cnt';
       cnt.textContent = item.count;
@@ -3257,9 +3269,19 @@ function renderStorage() {
   panel.hidden = activeStorage === null;
   document.getElementById('recipes').parentElement.hidden = activeStorage !== null;
   document.getElementById('bagHint').textContent = activeStorage === null
-    ? 'Ketik item, kemudian slot lain untuk pindah. Baris atas ialah hotbar.'
+    ? '36 slot. Baris atas ialah hotbar. Ketik barang kemudian slot lain untuk pindah. Pilih katalog untuk mengganti isi slot.'
     : 'Ketik barang dalam beg untuk simpan; ketik barang dalam peti untuk ambil. Satu timbunan dipindahkan.';
   if (activeStorage !== null) document.getElementById('storageGrid').replaceChildren(...storage[activeStorage].map((it, i) => makeSlot(it, () => moveStorage(storage[activeStorage], i, inv))));
+}
+function renderCatalog() {
+  const panel=document.getElementById('catalogSection');panel.hidden=activeStorage!==null;
+  document.getElementById('catalogHint').textContent=catalogPick===null ? 'Pilih item, kemudian ketik slot beg untuk mengisi atau mengganti slot itu. Block: 64, alat: 1 dengan ketahanan penuh.' : 'Dipilih: '+info(catalogPick).name+'. Ketik slot beg yang mahu diganti.';
+  document.getElementById('catalogCancel').hidden=catalogPick===null;
+  const query=document.getElementById('catalogSearch').value.trim().toLocaleLowerCase('ms-MY');
+  document.getElementById('catalogGrid').replaceChildren(...CATALOG.filter(id=>info(id).name.toLocaleLowerCase('ms-MY').includes(query)).map(id=>{
+    const b=document.createElement('button');b.type='button';b.className='catalogItem';b.classList.toggle('on',id===catalogPick);b.append(blockIcon(id));const label=document.createElement('span');label.textContent=info(id).name;b.append(label);
+    b.onclick=()=>{catalogPick=id;bagPick=-1;renderBag();document.getElementById('bagHint').textContent='Pilih slot beg untuk '+info(id).name+' (isi lama slot itu akan diganti).';document.getElementById('bagGrid').scrollIntoView({block:'nearest',behavior:'smooth'});};return b;
+  }));
 }
 function renderBag() {
   bagGrid.replaceChildren(...inv.map((it, i) => {
@@ -3270,8 +3292,13 @@ function renderBag() {
   }));
   renderRecipes();
   renderStorage();
+  renderCatalog();
 }
 function tapBag(i) {
+  if (catalogPick !== null && activeStorage === null) {
+    const id=catalogPick; inv[i]=isTool(id)?{id,count:1,dur:ITEMS[id].uses}:{id,count:STACK};
+    catalogPick=null;bagPick=-1;saveDirty=true;renderHotbar();writeSave();return;
+  }
   if (activeStorage !== null) { moveStorage(inv, i, storage[activeStorage]); return; }
   if (bagPick < 0) {
     if (inv[i]) bagPick = i;
@@ -3294,10 +3321,12 @@ function tapBag(i) {
   renderHotbar();
 }
 function setBag(open) {
+  catalogPick = null;
   if (!open) activeStorage = null;
   bagOpen = open;
   bagPick = -1;
   bagEl.classList.toggle('hidden', !open);
+  if (!open && !playing) overlay.classList.remove('hidden');
   joy.x = joy.y = 0;
   jumpHeld = false;
   holdPoint = null;
@@ -3317,7 +3346,11 @@ function applyMode() {
   document.getElementById('modeBtn').textContent = mode === 'survival' ? 'Mod: Survival (tukar ke Kreatif)' : 'Mod: Kreatif (tukar ke Survival)';
   renderHotbar();
 }
-bagBtn.addEventListener('click', () => { if (playing && mode === 'survival') setBag(!bagOpen); });
+bagBtn.addEventListener('click', () => { if (playing && !dead) setBag(!bagOpen); });
+document.getElementById('catalogSearch').addEventListener('input', renderCatalog);
+document.getElementById('catalogCancel').onclick=()=>{catalogPick=null;renderBag();};
+document.getElementById('fillBag').onclick=()=>{fillInventory();catalogPick=null;renderHotbar();writeSave();};
+document.getElementById('menuBag').onclick=()=>{overlay.classList.add('hidden');setBag(true);};
 document.getElementById('bagClose').addEventListener('click', () => setBag(false));
 document.getElementById('modeBtn').addEventListener('click', () => {
   mode = mode === 'survival' ? 'creative' : 'survival';
@@ -4307,6 +4340,7 @@ function startPlaying() {
 }
 function pause() {
   activeStorage = null;
+  catalogPick = null;
   playing = false;
   bagOpen = false;
   bagEl.classList.add('hidden');
@@ -4342,8 +4376,9 @@ document.addEventListener('pointerlockchange', () => {
 });
 
 window.addEventListener('keydown', (e) => {
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
   if (!playing) return;
-  if (e.code === 'KeyE' && mode === 'survival') { setBag(!bagOpen); return; }
+  if (e.code === 'KeyE' && !dead) { if (!e.repeat) setBag(!bagOpen); return; }
   if (bagOpen) return;
   keys[e.code] = true;
   if (e.code.startsWith('Digit')) {
@@ -4477,7 +4512,7 @@ padButton('padX', () => {
   clearInterval(placeRepeat);
   placeRepeat = setInterval(() => { if (playing && !dead && !bagOpen) doPlace(); }, 280);
 }, () => clearInterval(placeRepeat));
-padButton('padY', () => { if (mode === 'survival') setBag(!bagOpen); });
+padButton('padY', () => setBag(!bagOpen));
 
 // ---------- Main bersama (berbilang pemain) ----------
 // Seorang jadi hos (dunianya dikongsi), sehingga 3 kawan sertai dengan kod bilik.

@@ -20,3 +20,8 @@ test('backup round-trip retains storage and home', () => {
 test('malformed worlds, inventory and detached storage are rejected', () => {
   for (const world of [null,{seed:1,edits:[0]}, {seed:1,edits:[0,255]}, {seed:1,edits:[-1,1]}, {seed:1,edits:[],inv:[[100,2,13]]}, {seed:1,edits:[],storage:{0:[[1,1]]}}, {seed:1,edits:[],home:[999,0,0]}]) assert.throws(()=>validateBackup(world,rules));
 });
+test('expanded inventory accepts 36 slots and preserves the last slot', () => {
+  const inv=Array(36).fill(0); inv[35]=[1,64];
+  assert.equal(validateBackup({seed:1,edits:[],inv},rules).inv[35][1],64);
+  assert.throws(()=>validateBackup({seed:1,edits:[],inv:[...inv,0]},rules));
+});

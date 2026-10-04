@@ -1,6 +1,6 @@
 // Simpan fail game supaya boleh main tanpa internet.
 // Cuba rangkaian dulu (supaya versi baru sampai), guna simpanan kalau offline.
-const CACHE = 'pinkcraft-v4';
+const CACHE = 'pinkcraft-v5';
 const FILES = ['./', 'index.html', 'game.js', 'world-tools.mjs', 'three.module.min.js', 'peerjs.min.js', 'pixel.woff2', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {

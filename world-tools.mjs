@@ -39,7 +39,7 @@ export function validateBackup(value, { width, depth, height, blocks, items, sto
       if (def?.tool && (it[1] !== 1 || (it[2] !== undefined && (!Number.isInteger(it[2]) || it[2] < 1 || it[2] > def.uses)))) bad();
     }
   }
-  if (s.inv !== undefined) slots(s.inv, 27);
+  if (s.inv !== undefined) slots(s.inv, 36);
   if (s.storage !== undefined) {
     if (!s.storage || typeof s.storage !== 'object' || Array.isArray(s.storage)) bad();
     for (const [key, list] of Object.entries(s.storage)) {

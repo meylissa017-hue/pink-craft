@@ -60,7 +60,7 @@
   body.console #crosshair { display: block; }
   #menuBtn { position: fixed; right: calc(10px + env(safe-area-inset-right)); top: calc(10px + env(safe-area-inset-top)); width: 44px; height: 44px; border-radius: 10px; border: none; background: rgba(255, 255, 255, .6); color: #c2307a; font-size: 22px; }
   #bagBtn { flex: none; width: min(44px, 9vw); height: min(44px, 9vw); padding: 0; border: none; border-radius: 8px; background: #ff4fa3; color: #fff; font-size: 13px; font-weight: 700; }
-  body.creative #bagBtn { display: none; }
+  body.creative #bagBtn { display: block; }
   #bag { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(255, 190, 222, .6); padding: 10px; box-sizing: border-box; }
   #bag.hidden { display: none; }
   #bag .card { max-width: none; width: auto; padding: 12px 16px; touch-action: pan-y; }
@@ -250,6 +250,17 @@
   #mapPlaces { display:flex; flex-wrap:wrap; gap:4px; }
   #mapPlaces button { width:auto; flex:1 1 100px; padding:8px; font-size:12px; margin-top:4px; }
   #mapInfo, #backupInfo { min-height:1.5em; overflow-wrap:anywhere; }
+#catalogSection[hidden] {display:none;}
+#catalogSection {margin-top:14px;max-width:760px;}
+#catalogSearch {box-sizing:border-box;width:100%;padding:12px;margin:10px 0;border:3px solid var(--frame);font:inherit;user-select:text;}
+#catalogGrid {display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:6px;max-height:280px;overflow:auto;touch-action:pan-y;}
+.card .catalogItem {margin:0;padding:8px 4px;font-size:11px;min-height:80px;background:#ffeeb0;color:var(--ink);text-shadow:none;}
+.catalogItem canvas {display:block;width:32px;height:32px;image-rendering:pixelated;margin:0 auto 5px;}
+.card .catalogItem.on {background:#ff9dcc;outline:2px solid #fff;}
+#bag .card {width:min(960px,100%);}
+#hotbar .slot, #hotbar #bagBtn {width:min(44px,8vw);height:min(44px,8vw);}
+#craftSection {margin-top:12px;text-align:left;} #craftSection summary {cursor:pointer;padding:12px;background:#ffeeb0;border:3px solid var(--frame);}
+#bag .card > #bagClose {position:sticky;bottom:0;z-index:1;}
 </style>
 </head>
 <body>
@@ -283,12 +294,13 @@
         <p id="bagHint">Ketik item, kemudian ketik slot lain untuk pindah. Baris atas ialah hotbar.</p>
         <div id="bagGrid"></div>
       </div>
-      <div>
-        <h2>Buat</h2>
-        <p>Kumpul bahan, kemudian tekan Buat. Seret senarai untuk lihat semua.</p>
-        <div id="recipes"></div>
-      </div>
+
     </div>
+    <div id="catalogSection"><h2>Semua Item</h2><p id="catalogHint"></p>
+    <div class="row"><button id="fillBag">Isi Penuh Beg</button><button id="catalogCancel" hidden>Batal Pilihan</button></div>
+    <input id="catalogSearch" type="search" placeholder="Cari blok, perabot, makanan, alat..." aria-label="Cari item" autocomplete="off">
+    <div id="catalogGrid"></div></div>
+    <details id="craftSection"><summary>Buat Item (Crafting)</summary><div id="recipes"></div></details>
     <button id="bagClose">Tutup</button>
   </div>
 </div>
@@ -309,6 +321,7 @@
     <p id="oldWorld" hidden>Dunia ini versi lama, belum ada pantai, padang bola dan taman permainan. Tekan <b>Naik Taraf Dunia</b> untuk tambah semuanya dan kekalkan binaan awak.</p>
     <button id="install" hidden>Pasang Aplikasi</button>
     <button id="play">Main</button>
+    <button id="menuBag">Buka Beg / Pilih Item</button>
     <button id="upgradeBtn" hidden>Naik Taraf Dunia</button>
     <button id="modeBtn"></button>
     <button id="ctrlBtn"></button>
