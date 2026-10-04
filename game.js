@@ -11,22 +11,42 @@ const EYE = 1.62;
 const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, LOG = 4, LEAVES = 5, BRICK = 6, PLANKS = 7,
   HEART = 8, CANDY = 9, GLOW = 10, GLASS = 11, BEDROCK = 12;
 
-// tiles: [atas, bawah, sisi] — nombor petak dalam atlas 4x4; hard: saat untuk pecahkan
+// tiles: [atas, bawah, sisi] — nombor petak dalam atlas 4x4; hard: saat untuk pecahkan dengan tangan; tool: alat yang mempercepat
 const BLOCKS = {
-  [GRASS]: { name: 'Rumput Pink', hard: 0.5, tiles: [0, 2, 1] },
-  [DIRT]: { name: 'Tanah', hard: 0.5, tiles: [2, 2, 2] },
-  [STONE]: { name: 'Batu Ungu', hard: 1.0, tiles: [3, 3, 3] },
-  [LOG]: { name: 'Batang Sakura', hard: 0.8, tiles: [5, 5, 4] },
+  [GRASS]: { name: 'Rumput Pink', hard: 0.6, tool: 'shovel', tiles: [0, 2, 1] },
+  [DIRT]: { name: 'Tanah', hard: 0.6, tool: 'shovel', tiles: [2, 2, 2] },
+  [STONE]: { name: 'Batu Ungu', hard: 2, tool: 'pick', tiles: [3, 3, 3] },
+  [LOG]: { name: 'Batang Sakura', hard: 1.5, tool: 'axe', tiles: [5, 5, 4] },
   [LEAVES]: { name: 'Bunga Sakura', hard: 0.25, tiles: [6, 6, 6] },
-  [BRICK]: { name: 'Pink Brick', hard: 1.0, tiles: [7, 7, 7] },
-  [PLANKS]: { name: 'Pink Planks', hard: 0.7, tiles: [8, 8, 8] },
-  [HEART]: { name: 'Heart Block', hard: 0.6, tiles: [9, 9, 9] },
-  [CANDY]: { name: 'Candy Block', hard: 0.6, tiles: [10, 10, 10] },
-  [GLOW]: { name: 'Pink Glow Block', hard: 0.4, tiles: [11, 11, 11], glow: true },
+  [BRICK]: { name: 'Pink Brick', hard: 2, tool: 'pick', tiles: [7, 7, 7] },
+  [PLANKS]: { name: 'Pink Planks', hard: 1.2, tool: 'axe', tiles: [8, 8, 8] },
+  [HEART]: { name: 'Heart Block', hard: 1, tool: 'pick', tiles: [9, 9, 9] },
+  [CANDY]: { name: 'Candy Block', hard: 1, tool: 'pick', tiles: [10, 10, 10] },
+  [GLOW]: { name: 'Pink Glow Block', hard: 0.6, tool: 'pick', tiles: [11, 11, 11], glow: true },
   [GLASS]: { name: 'Pink Glass', hard: 0.3, tiles: [12, 12, 12], transparent: true },
   [BEDROCK]: { name: 'Bedrock', hard: Infinity, tiles: [13, 13, 13] },
 };
 const HOTBAR = [GRASS, STONE, BRICK, PLANKS, HEART, CANDY, GLOW, GLASS, LEAVES];
+
+// ---------- Alat (item yang tak boleh diletak) ----------
+const PICK_W = 100, AXE_W = 101, SHOVEL_W = 102, PICK_S = 103, AXE_S = 104, SHOVEL_S = 105;
+// speed: berapa kali lebih laju pada block yang sesuai; uses: ketahanan
+const ITEMS = {
+  [PICK_W]: { name: 'Beliung Kayu', tool: 'pick', speed: 2, uses: 40, head: 'c2307a' },
+  [AXE_W]: { name: 'Kapak Kayu', tool: 'axe', speed: 2, uses: 40, head: 'c2307a' },
+  [SHOVEL_W]: { name: 'Penyodok Kayu', tool: 'shovel', speed: 2, uses: 40, head: 'c2307a' },
+  [PICK_S]: { name: 'Beliung Batu', tool: 'pick', speed: 4, uses: 100, head: '8a74a0' },
+  [AXE_S]: { name: 'Kapak Batu', tool: 'axe', speed: 4, uses: 100, head: '8a74a0' },
+  [SHOVEL_S]: { name: 'Penyodok Batu', tool: 'shovel', speed: 4, uses: 100, head: '8a74a0' },
+};
+const info = (id) => BLOCKS[id] || ITEMS[id];
+// Bentuk kepala alat pada ikon 16x16 (pemegang serong dari kiri bawah ke kanan atas)
+const TOOL_HEAD = {
+  pick: (x, y) => { const j = y - 4; return j >= -4 && j <= 4 && (x === 11 + j || x === 10 + j) || (y - 5 >= -4 && y - 5 <= 4 && x === 11 + y - 5); },
+  axe: (x, y) => x >= 5 && x <= 12 && y <= 7 && x - y >= 3 && x - y <= 7 && x + y >= 9 && x + y <= 15,
+  shovel: (x, y) => (Math.abs(x - 12) + Math.abs(y - 3) <= 3 && x !== 9 && y !== 6) || (x >= 12 && x <= 14 && y >= 1 && y <= 2),
+};
+const toolHandle = (x, y) => y >= 5 && y <= 13 && (x === 15 - y || x === 16 - y);
 
 // ---------- Rawak ----------
 function hash(x, y, s) {
@@ -150,7 +170,7 @@ function writeSave() {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
       seed: save.seed, edits: flat,
       player: [player.x, player.y, player.z, yaw, pitch], slot: selected,
-      mode, inv: inv.map((it) => (it ? [it.id, it.count] : 0)),
+      mode, inv: inv.map((it) => (it ? (it.dur ? [it.id, it.count, it.dur] : [it.id, it.count]) : 0)),
     }));
   } catch (e) { /* storan penuh atau disekat: game tetap jalan tanpa simpan */ }
 }
@@ -688,6 +708,7 @@ function doPlace(sx, sy) {
       y + 1 > player.y && y < player.y + player.h) return;
   const id = heldId();
   if (id === AIR) { showToast('Slot kosong - pecahkan block untuk kumpul'); return; }
+  if (ITEMS[id]) { showToast('Ini alat - tahan pada block untuk guna'); return; }
   setBlock(x, y, z, id);
   consumeHeld();
   beep(420, 0.06, 'triangle', 0.07);
@@ -848,6 +869,20 @@ function resetMining() {
   mining.progress = 0;
   crack.visible = false;
 }
+// Setiap block yang dipecahkan mengurangkan ketahanan alat di tangan
+function wearTool() {
+  if (mode !== 'survival') return;
+  const it = inv[selected];
+  if (!it || !ITEMS[it.id]) return;
+  it.dur--;
+  if (it.dur <= 0) {
+    inv[selected] = null;
+    showToast(ITEMS[it.id].name + ' pecah!');
+    beep(120, 0.2, 'sawtooth', 0.06);
+  }
+  saveDirty = true;
+  renderHotbar();
+}
 // Pulangkan block yang sedang disasar (untuk kotak sasaran)
 function updateMining(dt) {
   let res = null;
@@ -859,11 +894,15 @@ function updateMining(dt) {
 
   const key = idx(hit.x, hit.y, hit.z);
   if (key !== mining.key) { mining.key = key; mining.progress = 0; mining.tick = 0; }
-  mining.progress += dt / BLOCKS[hit.id].hard;
+  const def = BLOCKS[hit.id], tool = ITEMS[heldId()];
+  let speed = mode === 'creative' ? 4 : 1;
+  if (tool && tool.tool === def.tool) speed *= tool.speed;
+  mining.progress += dt * speed / def.hard;
   mining.tick -= dt;
   if (mining.tick <= 0) { mining.tick = 0.2; beep(130 + Math.random() * 50, 0.05, 'square', 0.03); }
   if (mining.progress >= 1) {
     breakBlock(hit);
+    wearTool();
     resetMining();
     return null;
   }
@@ -880,6 +919,12 @@ const STARTER = [[BRICK, 20], [PLANKS, 20], [HEART, 10], [CANDY, 10], [GLOW, 10]
 // out: [block, bilangan]; in: senarai [block, bilangan]
 const RECIPES = [
   { out: [PLANKS, 4], in: [[LOG, 1]] },
+  { out: [PICK_W, 1], in: [[PLANKS, 3], [LOG, 2]] },
+  { out: [AXE_W, 1], in: [[PLANKS, 3], [LOG, 2]] },
+  { out: [SHOVEL_W, 1], in: [[PLANKS, 1], [LOG, 2]] },
+  { out: [PICK_S, 1], in: [[STONE, 3], [LOG, 2]] },
+  { out: [AXE_S, 1], in: [[STONE, 3], [LOG, 2]] },
+  { out: [SHOVEL_S, 1], in: [[STONE, 1], [LOG, 2]] },
   { out: [BRICK, 4], in: [[STONE, 4]] },
   { out: [GLASS, 2], in: [[DIRT, 2], [STONE, 1]] },
   { out: [CANDY, 2], in: [[LEAVES, 2], [GRASS, 1]] },
@@ -890,7 +935,10 @@ let mode = save.mode === 'creative' ? 'creative' : 'survival';
 const inv = new Array(INV_SIZE).fill(null);
 if (Array.isArray(save.inv)) {
   save.inv.slice(0, INV_SIZE).forEach((it, i) => {
-    if (Array.isArray(it) && BLOCKS[it[0]] && it[1] > 0) inv[i] = { id: it[0], count: Math.min(STACK, it[1]) };
+    if (!Array.isArray(it) || !info(it[0]) || !(it[1] > 0)) return;
+    inv[i] = ITEMS[it[0]]
+      ? { id: it[0], count: 1, dur: it[2] > 0 ? Math.min(it[2], ITEMS[it[0]].uses) : ITEMS[it[0]].uses }
+      : { id: it[0], count: Math.min(STACK, it[1]) };
   });
 } else {
   STARTER.forEach(([id, count], i) => { inv[i] = { id, count }; });
@@ -915,12 +963,14 @@ function consumeHeld() {
   saveDirty = true;
   renderHotbar();
 }
-const hasRoom = (id) => inv.some((it) => !it || (it.id === id && it.count < STACK));
+const maxStack = (id) => (ITEMS[id] ? 1 : STACK);
+const newItem = (id) => (ITEMS[id] ? { id, count: 1, dur: ITEMS[id].uses } : { id, count: 1 });
+const hasRoom = (id) => inv.some((it) => !it || (it.id === id && it.count < maxStack(id)));
 function addItem(id) {
-  let i = inv.findIndex((it) => it && it.id === id && it.count < STACK);
+  let i = inv.findIndex((it) => it && it.id === id && it.count < maxStack(id));
   if (i < 0) i = inv.findIndex((it) => !it);
   if (i < 0) return false;
-  if (inv[i]) inv[i].count++; else inv[i] = { id, count: 1 };
+  if (inv[i]) inv[i].count++; else inv[i] = newItem(id);
   saveDirty = true;
   renderHotbar();
   return true;
@@ -929,8 +979,22 @@ function addItem(id) {
 function blockIcon(id) {
   const c = document.createElement('canvas');
   c.width = c.height = 16;
+  const ctx = c.getContext('2d');
+  const tool = ITEMS[id];
+  if (tool) {
+    const head = TOOL_HEAD[tool.tool];
+    for (let y = 0; y < 16; y++) {
+      for (let x = 0; x < 16; x++) {
+        const isHead = head(x, y);
+        if (!isHead && !toolHandle(x, y)) continue;
+        ctx.fillStyle = '#' + (isHead ? tool.head : '8f566c');
+        ctx.fillRect(x, y, 1, 1);
+      }
+    }
+    return c;
+  }
   const tile = BLOCKS[id].tiles[2];
-  c.getContext('2d').drawImage(atlasCanvas, (tile % 4) * 16, (tile >> 2) * 16, 16, 16, 0, 0, 16, 16);
+  ctx.drawImage(atlasCanvas, (tile % 4) * 16, (tile >> 2) * 16, 16, 16, 0, 0, 16, 16);
   return c;
 }
 function makeSlot(item, onTap) {
@@ -938,7 +1002,14 @@ function makeSlot(item, onTap) {
   slot.className = 'slot';
   if (item) {
     slot.appendChild(blockIcon(item.id));
-    if (mode === 'survival') {
+    if (ITEMS[item.id]) {
+      // Bar ketahanan alat
+      const bar = document.createElement('div'), fill = document.createElement('div');
+      bar.className = 'dur';
+      fill.style.width = Math.round(100 * item.dur / ITEMS[item.id].uses) + '%';
+      bar.appendChild(fill);
+      slot.appendChild(bar);
+    } else if (mode === 'survival') {
       const cnt = document.createElement('span');
       cnt.className = 'cnt';
       cnt.textContent = item.count;
@@ -963,7 +1034,7 @@ function selectSlot(i, quiet) {
   saveDirty = true;
   renderHotbar();
   const it = slotItem(selected);
-  if (!quiet && it) showToast(BLOCKS[it.id].name);
+  if (!quiet && it) showToast(info(it.id).name);
 }
 function showToast(text) {
   toastEl.textContent = text;
@@ -975,7 +1046,7 @@ function showToast(text) {
 // ---------- Crafting ----------
 const recipesEl = document.getElementById('recipes');
 const countItem = (id) => inv.reduce((sum, it) => sum + (it && it.id === id ? it.count : 0), 0);
-const roomFor = (id) => inv.reduce((sum, it) => sum + (!it ? STACK : it.id === id ? STACK - it.count : 0), 0);
+const roomFor = (id) => inv.reduce((sum, it) => sum + (!it ? maxStack(id) : it.id === id ? maxStack(id) - it.count : 0), 0);
 const canCraft = (r) => r.in.every(([id, count]) => countItem(id) >= count) && roomFor(r.out[0]) >= r.out[1];
 function removeItems(id, count) {
   for (let i = inv.length - 1; i >= 0 && count > 0; i--) {
@@ -994,13 +1065,13 @@ function craft(r) {
   bagPick = -1;
   beep(700, 0.07, 'triangle', 0.07);
   setTimeout(() => beep(1050, 0.1, 'triangle', 0.07), 70);
-  showToast('+' + r.out[1] + ' ' + BLOCKS[r.out[0]].name);
+  showToast('+' + r.out[1] + ' ' + info(r.out[0]).name);
   renderHotbar();
 }
 function recipePart(id, count, lack) {
   const part = document.createElement('span');
   part.className = lack ? 'part lack' : 'part';
-  part.title = BLOCKS[id].name;
+  part.title = info(id).name;
   part.append(blockIcon(id), '\u00d7' + count);
   return part;
 }
@@ -1015,7 +1086,7 @@ function renderRecipes() {
     row.append('\u2192', recipePart(r.out[0], r.out[1], false));
     const name = document.createElement('span');
     name.className = 'rname';
-    name.textContent = BLOCKS[r.out[0]].name;
+    name.textContent = info(r.out[0]).name;
     const btn = document.createElement('button');
     btn.textContent = 'Buat';
     btn.disabled = !canCraft(r);
@@ -1042,7 +1113,7 @@ function tapBag(i) {
     bagPick = -1;
   } else {
     const a = inv[bagPick], b = inv[i];
-    if (b && a.id === b.id) {
+    if (b && a.id === b.id && !ITEMS[a.id]) {
       const move = Math.min(a.count, STACK - b.count);
       b.count += move;
       a.count -= move;
@@ -1291,4 +1362,4 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // Untuk ujian dari konsol
-window.__pink = { player, mobs, world, getBlock, setBlock, doPlace, mining, inv, drops, addItem, heldId, RECIPES, craft, get mode() { return mode; }, surfaceY, startPlaying, selectSlot, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, get pitch() { return pitch; }, set pitch(v) { pitch = v; } };
+window.__pink = { player, mobs, world, getBlock, setBlock, doPlace, mining, inv, drops, addItem, heldId, RECIPES, craft, ITEMS, renderHotbar, get mode() { return mode; }, surfaceY, startPlaying, selectSlot, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, get pitch() { return pitch; }, set pitch(v) { pitch = v; } };
