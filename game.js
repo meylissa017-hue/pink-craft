@@ -3,7 +3,7 @@ import * as THREE from './three.module.min.js';
 // ---------- Tetapan dunia ----------
 const W = 96, D = 96, H = 48, CHUNK = 16;
 const SAVE_KEY = 'pinkcraft-save-v1';
-const REACH = 6;
+const REACH = 8;
 const WALK_SPEED = 4.5, JUMP_SPEED = 8.5, GRAVITY = 26;
 const EYE = 1.62;
 
@@ -11,20 +11,20 @@ const EYE = 1.62;
 const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, LOG = 4, LEAVES = 5, BRICK = 6, PLANKS = 7,
   HEART = 8, CANDY = 9, GLOW = 10, GLASS = 11, BEDROCK = 12;
 
-// tiles: [atas, bawah, sisi] — nombor petak dalam atlas 4x4
+// tiles: [atas, bawah, sisi] — nombor petak dalam atlas 4x4; hard: saat untuk pecahkan
 const BLOCKS = {
-  [GRASS]: { name: 'Rumput Pink', tiles: [0, 2, 1] },
-  [DIRT]: { name: 'Tanah', tiles: [2, 2, 2] },
-  [STONE]: { name: 'Batu Ungu', tiles: [3, 3, 3] },
-  [LOG]: { name: 'Batang Sakura', tiles: [5, 5, 4] },
-  [LEAVES]: { name: 'Bunga Sakura', tiles: [6, 6, 6] },
-  [BRICK]: { name: 'Pink Brick', tiles: [7, 7, 7] },
-  [PLANKS]: { name: 'Pink Planks', tiles: [8, 8, 8] },
-  [HEART]: { name: 'Heart Block', tiles: [9, 9, 9] },
-  [CANDY]: { name: 'Candy Block', tiles: [10, 10, 10] },
-  [GLOW]: { name: 'Pink Glow Block', tiles: [11, 11, 11], glow: true },
-  [GLASS]: { name: 'Pink Glass', tiles: [12, 12, 12], transparent: true },
-  [BEDROCK]: { name: 'Bedrock', tiles: [13, 13, 13] },
+  [GRASS]: { name: 'Rumput Pink', hard: 0.5, tiles: [0, 2, 1] },
+  [DIRT]: { name: 'Tanah', hard: 0.5, tiles: [2, 2, 2] },
+  [STONE]: { name: 'Batu Ungu', hard: 1.0, tiles: [3, 3, 3] },
+  [LOG]: { name: 'Batang Sakura', hard: 0.8, tiles: [5, 5, 4] },
+  [LEAVES]: { name: 'Bunga Sakura', hard: 0.25, tiles: [6, 6, 6] },
+  [BRICK]: { name: 'Pink Brick', hard: 1.0, tiles: [7, 7, 7] },
+  [PLANKS]: { name: 'Pink Planks', hard: 0.7, tiles: [8, 8, 8] },
+  [HEART]: { name: 'Heart Block', hard: 0.6, tiles: [9, 9, 9] },
+  [CANDY]: { name: 'Candy Block', hard: 0.6, tiles: [10, 10, 10] },
+  [GLOW]: { name: 'Pink Glow Block', hard: 0.4, tiles: [11, 11, 11], glow: true },
+  [GLASS]: { name: 'Pink Glass', hard: 0.3, tiles: [12, 12, 12], transparent: true },
+  [BEDROCK]: { name: 'Bedrock', hard: Infinity, tiles: [13, 13, 13] },
 };
 const HOTBAR = [GRASS, STONE, BRICK, PLANKS, HEART, CANDY, GLOW, GLASS, LEAVES];
 
@@ -668,18 +668,16 @@ function pet(m) {
   setTimeout(() => beep(1320, 0.15, 'sine', 0.08), 90);
 }
 
-function doBreak(sx, sy) {
-  const { hit, mob } = aim(sx, sy);
-  if (mob) { pet(mob); return; }
-  if (!hit || hit.id === BEDROCK) return;
+function breakBlock(hit) {
   setBlock(hit.x, hit.y, hit.z, AIR);
+  burst(hit.x, hit.y, hit.z, hit.id);
   beep(180, 0.09, 'square', 0.05);
 }
 
 function doPlace(sx, sy) {
   const { hit, mob } = aim(sx, sy);
   if (mob) { pet(mob); return; }
-  if (!hit) return;
+  if (!hit) { showToast('Terlalu jauh - dekati block'); return; }
   const x = hit.x + hit.face[0], y = hit.y + hit.face[1], z = hit.z + hit.face[2];
   if (!inBounds(x, y, z) || world[idx(x, y, z)] !== AIR) return;
   // Jangan letak block di dalam badan pemain
@@ -698,6 +696,116 @@ const highlight = new THREE.LineSegments(
 highlight.visible = false;
 scene.add(highlight);
 
+// ---------- Retak (8 peringkat) ----------
+const crackTextures = (() => {
+  const rnd = mulberry32(4242);
+  const walks = [];
+  for (let w = 0; w < 6; w++) {
+    let x = 7 + Math.floor(rnd() * 2), y = 7 + Math.floor(rnd() * 2);
+    const dir = rnd() * Math.PI * 2, walk = [];
+    for (let i = 0; i < 12; i++) {
+      walk.push([x, y]);
+      const a = dir + (rnd() - 0.5) * 1.6;
+      x = Math.max(0, Math.min(15, Math.round(x + Math.cos(a))));
+      y = Math.max(0, Math.min(15, Math.round(y + Math.sin(a))));
+    }
+    walks.push(walk);
+  }
+  // Selang-selikan supaya semua retak memanjang serentak dari tengah
+  const pixels = [];
+  for (let i = 0; i < 12; i++) for (const walk of walks) pixels.push(walk[i]);
+  const out = [];
+  for (let stage = 0; stage < 8; stage++) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 16;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = 'rgba(70, 20, 45, 0.8)';
+    const count = Math.ceil(pixels.length * (stage + 1) / 8);
+    for (let i = 0; i < count; i++) ctx.fillRect(pixels[i][0], pixels[i][1], 1, 1);
+    const t = new THREE.CanvasTexture(c);
+    t.magFilter = t.minFilter = THREE.NearestFilter;
+    t.generateMipmaps = false;
+    t.colorSpace = THREE.SRGBColorSpace;
+    out.push(t);
+  }
+  return out;
+})();
+const crack = new THREE.Mesh(
+  new THREE.BoxGeometry(1.008, 1.008, 1.008),
+  new THREE.MeshBasicMaterial({ map: crackTextures[0], transparent: true, depthWrite: false })
+);
+crack.visible = false;
+crack.renderOrder = 3;
+scene.add(crack);
+
+// ---------- Serpihan bila block pecah ----------
+const particles = [];
+const particleGeo = new THREE.BoxGeometry(0.12, 0.12, 0.12);
+const particleMats = {};
+function particleMat(id) {
+  if (!particleMats[id]) {
+    const tile = BLOCKS[id].tiles[2];
+    const d = atlasCanvas.getContext('2d').getImageData((tile % 4) * 16, (tile >> 2) * 16, 16, 16).data;
+    let r = 0, g = 0, b = 0;
+    for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; }
+    const color = new THREE.Color().setRGB(r / 65280, g / 65280, b / 65280, THREE.SRGBColorSpace);
+    particleMats[id] = new THREE.MeshBasicMaterial({ color });
+  }
+  return particleMats[id];
+}
+function burst(x, y, z, id) {
+  for (let i = 0; i < 12; i++) {
+    const m = new THREE.Mesh(particleGeo, particleMat(id));
+    m.position.set(x + Math.random(), y + Math.random(), z + Math.random());
+    scene.add(m);
+    particles.push({ m, vx: (Math.random() - 0.5) * 3, vy: 1 + Math.random() * 3, vz: (Math.random() - 0.5) * 3, life: 0.45 + Math.random() * 0.3 });
+  }
+}
+function updateParticles(dt) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.life -= dt;
+    p.vy -= 14 * dt;
+    p.m.position.x += p.vx * dt; p.m.position.y += p.vy * dt; p.m.position.z += p.vz * dt;
+    p.m.scale.setScalar(Math.max(0.05, Math.min(1, p.life * 3)));
+    if (p.life <= 0) { scene.remove(p.m); particles.splice(i, 1); }
+  }
+}
+
+// ---------- Melombong: tahan pada block sampai retak penuh ----------
+const mining = { key: -1, progress: 0, tick: 0 };
+let holdPoint = null;      // jari yang sedang menahan (sentuh)
+let mouseMining = false;   // butang kiri ditahan (tetikus terkunci)
+function resetMining() {
+  mining.key = -1;
+  mining.progress = 0;
+  crack.visible = false;
+}
+// Pulangkan block yang sedang disasar (untuk kotak sasaran)
+function updateMining(dt) {
+  let res = null;
+  if (holdPoint) res = aim(holdPoint.x, holdPoint.y);
+  else if (playing && locked()) res = aim();
+  const hit = res && !res.mob ? res.hit : null;
+  const active = playing && (holdPoint || (mouseMining && locked()));
+  if (!active || !hit || hit.id === BEDROCK) { resetMining(); return hit; }
+
+  const key = idx(hit.x, hit.y, hit.z);
+  if (key !== mining.key) { mining.key = key; mining.progress = 0; mining.tick = 0; }
+  mining.progress += dt / BLOCKS[hit.id].hard;
+  mining.tick -= dt;
+  if (mining.tick <= 0) { mining.tick = 0.2; beep(130 + Math.random() * 50, 0.05, 'square', 0.03); }
+  if (mining.progress >= 1) {
+    breakBlock(hit);
+    resetMining();
+    return null;
+  }
+  crack.material.map = crackTextures[Math.min(7, Math.floor(mining.progress * 8))];
+  crack.position.set(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5);
+  crack.visible = true;
+  return hit;
+}
+
 // ---------- Hotbar ----------
 let selected = Number.isInteger(save.slot) && save.slot >= 0 && save.slot < HOTBAR.length ? save.slot : 0;
 const hotbarEl = document.getElementById('hotbar');
@@ -707,8 +815,10 @@ function selectSlot(i, quiet) {
   selected = (i + HOTBAR.length) % HOTBAR.length;
   [...hotbarEl.children].forEach((el, j) => el.classList.toggle('on', j === selected));
   saveDirty = true;
-  if (quiet) return;
-  toastEl.textContent = BLOCKS[HOTBAR[selected]].name;
+  if (!quiet) showToast(BLOCKS[HOTBAR[selected]].name);
+}
+function showToast(text) {
+  toastEl.textContent = text;
   toastEl.style.opacity = 1;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { toastEl.style.opacity = 0; }, 1200);
@@ -733,8 +843,8 @@ const newWorldBtn = document.getElementById('newWorld');
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 if (isTouch) document.body.classList.add('touch');
 document.getElementById('tips').innerHTML = isTouch
-  ? 'Kayu bedik kiri: jalan &bull; Seret skrin: pandang<br>Ketik: letak block &bull; Tekan lama: pecah block<br>Ketik Pinky untuk usap'
-  : 'WASD: jalan &bull; Space: lompat &bull; Tetikus: pandang<br>Klik kiri: pecah &bull; Klik kanan: letak<br>1-9 / roda tetikus: pilih block &bull; Esc: menu';
+  ? 'Kayu bedik kiri: jalan &bull; Seret skrin: pandang<br>Ketik: letak block &bull; Tekan &amp; tahan: pecah block<br>Ketik Pinky untuk usap'
+  : 'WASD: jalan &bull; Space: lompat &bull; Tetikus: pandang<br>Tahan klik kiri: pecah &bull; Klik kanan: letak<br>1-9 / roda tetikus: pilih block &bull; Esc: menu';
 
 const locked = () => document.pointerLockElement === canvas;
 
@@ -757,6 +867,8 @@ function pause() {
   playing = false;
   joy.x = joy.y = 0;
   jumpHeld = false;
+  holdPoint = null;
+  mouseMining = false;
   for (const k in keys) keys[k] = false;
   playBtn.textContent = 'Sambung';
   newWorldBtn.textContent = 'Dunia Baru';
@@ -803,37 +915,39 @@ document.addEventListener('mousemove', (e) => {
   if (playing && locked()) look(e.movementX, e.movementY, 0.0025);
 });
 
-// Sentuhan (dan tetikus tanpa pointer lock): seret = pandang, ketik = letak, tekan lama = pecah
-const HOLD_MS = 320, REPEAT_MS = 280, MOVE_PX = 12;
+// Sentuhan (dan tetikus tanpa pointer lock): seret = pandang, ketik = letak, tahan = lombong.
+// Jari sebenar sentiasa bergerak sikit, jadi tahan dikira selagi jari tak lari lebih HOLD_PX.
+const HOLD_MS = 250, HOLD_PX = 22, LOOK_PX = 10, TAP_PX = 16, TAP_MS = 300;
 const pointers = new Map();
-let holdPoint = null;
 
 function endPointer(e, tap) {
   const p = pointers.get(e.pointerId);
   if (!p) return;
   clearTimeout(p.holdTimer);
-  clearInterval(p.repeat);
-  if (p.holding) holdPoint = null;
-  if (tap && !p.moved && !p.holding) doPlace(p.x, p.y);
+  if (holdPoint === p) holdPoint = null;
+  if (tap && !p.holding && p.dist < TAP_PX && performance.now() - p.t0 < TAP_MS) doPlace(p.x, p.y);
   pointers.delete(e.pointerId);
 }
 canvas.addEventListener('pointerdown', (e) => {
   if (!playing) return;
   e.preventDefault();
   if (locked()) {
-    if (e.button === 0) doBreak();
-    else if (e.button === 2) doPlace();
+    if (e.button === 0) {
+      const { mob } = aim();
+      if (mob) pet(mob); else mouseMining = true;
+    } else if (e.button === 2) doPlace();
     return;
   }
   if (e.pointerType === 'mouse' && e.button === 2) { doPlace(e.clientX, e.clientY); return; }
   try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* penunjuk sudah tamat */ }
-  const p = { x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, moved: false, holding: false, holdTimer: 0, repeat: 0 };
+  const p = { x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, dist: 0, holding: false, t0: performance.now(), holdTimer: 0 };
   p.holdTimer = setTimeout(() => {
-    if (p.moved) return;
+    if (p.dist >= HOLD_PX) return;
     p.holding = true;
+    const { hit, mob } = aim(p.x, p.y);
+    if (mob) { pet(mob); return; }
+    if (!hit) { showToast('Terlalu jauh - dekati block'); return; }
     holdPoint = p;
-    doBreak(p.x, p.y);
-    p.repeat = setInterval(() => doBreak(p.x, p.y), REPEAT_MS);
   }, HOLD_MS);
   pointers.set(e.pointerId, p);
 });
@@ -842,14 +956,12 @@ canvas.addEventListener('pointermove', (e) => {
   if (!p) return;
   const dx = e.clientX - p.x, dy = e.clientY - p.y;
   p.x = e.clientX; p.y = e.clientY;
-  if (!p.moved && Math.hypot(p.x - p.x0, p.y - p.y0) > MOVE_PX) {
-    p.moved = true;
-    if (!p.holding) clearTimeout(p.holdTimer);
-  }
-  if (p.moved) look(dx, dy, 0.006);
+  p.dist = Math.max(p.dist, Math.hypot(p.x - p.x0, p.y - p.y0));
+  if (p.dist > LOOK_PX) look(dx, dy, 0.006);
 });
 canvas.addEventListener('pointerup', (e) => endPointer(e, true));
 canvas.addEventListener('pointercancel', (e) => endPointer(e, false));
+window.addEventListener('mouseup', () => { mouseMining = false; });
 
 // Kayu bedik
 const joyEl = document.getElementById('joy'), knobEl = document.getElementById('knob');
@@ -898,6 +1010,7 @@ function frame(now) {
   if (playing) updatePlayer(dt);
   for (const m of mobs) updateMob(m, dt, time);
   updateHearts(dt);
+  updateParticles(dt);
   for (const c of clouds) {
     c.position.x += dt * 0.8;
     if (c.position.x > 190) c.position.x = -90;
@@ -912,9 +1025,7 @@ function frame(now) {
   camera.rotation.set(pitch, yaw, 0);
   camera.updateMatrixWorld();
 
-  let target = null;
-  if (playing && locked()) target = aim().hit;
-  else if (holdPoint) target = aim(holdPoint.x, holdPoint.y).hit;
+  const target = updateMining(dt);
   highlight.visible = !!target;
   if (target) highlight.position.set(target.x + 0.5, target.y + 0.5, target.z + 0.5);
 
@@ -924,4 +1035,4 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // Untuk ujian dari konsol
-window.__pink = { player, mobs, world, getBlock, setBlock, doBreak, doPlace, surfaceY, startPlaying, selectSlot, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, get pitch() { return pitch; }, set pitch(v) { pitch = v; } };
+window.__pink = { player, mobs, world, getBlock, setBlock, doPlace, mining, surfaceY, startPlaying, selectSlot, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, get pitch() { return pitch; }, set pitch(v) { pitch = v; } };
