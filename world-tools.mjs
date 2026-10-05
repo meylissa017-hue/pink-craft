@@ -40,6 +40,13 @@ export function validateBackup(value, { width, depth, height, blocks, items, sto
     }
   }
   if (s.inv !== undefined) slots(s.inv, 36);
+  if (s.groundDrops !== undefined) {
+    if (!Array.isArray(s.groundDrops) || s.groundDrops.length > 10000) bad();
+    for (const d of s.groundDrops) {
+      if (!d || ![d.x,d.y,d.z].every(Number.isFinite) || d.x < 0 || d.x > width || d.z < 0 || d.z > depth || d.y < -30 || d.y > height+30 || !Number.isFinite(d.age) || d.age<0) bad();
+      slots([[d.id,d.count,...(d.dur === undefined ? [] : [d.dur])]],1);
+    }
+  }
   if (s.storage !== undefined) {
     if (!s.storage || typeof s.storage !== 'object' || Array.isArray(s.storage)) bad();
     for (const [key, list] of Object.entries(s.storage)) {

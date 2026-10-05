@@ -8,7 +8,8 @@ const W = 192, D = 192, H = 48, CHUNK = 16;
 const OW = 96, OD = 96;
 const SPAWN_X = 48.5, SPAWN_Z = 48.5;
 const SAVE_KEY = 'pinkcraft-save-v1';
-const REACH = 8;
+const REACH = 4.5; // jarak capai rasmi Minecraft
+const PICKUP_RADIUS = 1.5; // item dalam jarak ini ditarik ke pemain
 const WALK_SPEED = 4.5, JUMP_SPEED = 8.5, GRAVITY = 26;
 const EYE = 1.62;
 
@@ -551,6 +552,7 @@ function snapshotWorld() {
   edits.forEach((id, i) => flat.push(i, id));
   return {
       inventoryV: 2,
+      groundDrops: drops.map(d=>({id:d.id,count:d.count||1,dur:d.dur,x:d.x,y:d.y,z:d.z,age:d.age})),
       storage: Object.fromEntries(Object.entries(storage).filter(([key]) => world[Number(key)] === STORAGE).map(([key, list]) => [key, list.map(it => it ? [it.id, it.count, ...(it.dur ? [it.dur] : [])] : 0)])), home: homeMarker,
       seed: save.seed, size: 2, gen: pendingUpgrade ? 2 : GEN, base: pendingUpgrade || UPGRADED ? 1 : 0, fix: pendingUpgrade ? 1 : 0, edits: flat,
       player: [player.x, player.y, player.z, yaw, pitch], slot: selected,
@@ -3320,7 +3322,8 @@ function removeDrop(i) {
   drops.splice(i, 1);
 }
 function spawnDrop(x, y, z, id, item = null) {
-  if (drops.length >= 150) removeDrop(0);
+  if(!item && !ITEMS[id]?.tool){const nearby=drops.find(d=>d.id===id&&(d.count||1)<64&&Math.hypot(d.x-x-.5,d.y-y-.4,d.z-z-.5)<1.5);if(nearby){nearby.count=(nearby.count||1)+1;nearby.age=0;return nearby;}}
+
   let mesh;
   if (ITEMS[id]) {
     mesh = new THREE.Sprite(dropSpriteMat(id));
@@ -3329,23 +3332,29 @@ function spawnDrop(x, y, z, id, item = null) {
     mesh = new THREE.Mesh(dropGeo(id), BLOCKS[id].transparent ? glassMat : opaqueMat);
   }
   scene.add(mesh);
-  drops.push({
+  const drop={
     mesh, id, count:item?.count || 1, dur:item?.dur, pickupDelay:item ? 2 : 0.4, x: x + 0.5, y: y + 0.4, z: z + 0.5,
     vx: (Math.random() - 0.5) * 2, vy: 3, vz: (Math.random() - 0.5) * 2,
     hw: 0.125, h: 0.25, onGround: false, floats: true, age: 0, spin: Math.random() * 6,
-  });
+  };
+  drops.push(drop);return drop;
+}
+if(Array.isArray(save.groundDrops))for(const d of save.groundDrops){
+  if(!d||!info(d.id)||![d.x,d.y,d.z].every(Number.isFinite)||!Number.isInteger(d.count)||d.count<1||d.count>64)continue;
+  const restored=spawnDrop(d.x-.5,d.y-.4,d.z-.5,d.id,d);restored.vx=restored.vy=restored.vz=0;restored.age=Number.isFinite(d.age)?d.age:0;
 }
 let pickupNotice=0;
 function updateDrops(dt, time) {
   for (let i = drops.length - 1; i >= 0; i--) {
     const d = drops[i];
     d.age += dt;
-    const dx = player.x - d.x, dy = player.y + 0.9 - d.y, dz = player.z - d.z;
+    // Jarak diukur ke titik badan pemain yang paling dekat (kaki hingga kepala), macam kotak kutipan Minecraft
+    const dx = player.x - d.x, dy = Math.max(player.y, Math.min(player.y + player.h, d.y)) - d.y, dz = player.z - d.z;
     const dist = Math.hypot(dx, dy, dz);
-    if (d.age > (d.pickupDelay || 0.4) && dist < 2.2 && !hasRoom(d.id) && time > pickupNotice) {
+    if (d.age > (d.pickupDelay || 0.4) && dist < PICKUP_RADIUS && !hasRoom(d.id) && time > pickupNotice) {
       pickupNotice=time+4;showToast('Beg penuh — simpan dalam peti atau jatuhkan satu timbunan.');
     }
-    if (d.age > (d.pickupDelay || 0.4) && dist < 2.2 && hasRoom(d.id)) {
+    if (d.age > (d.pickupDelay || 0.4) && dist < PICKUP_RADIUS && hasRoom(d.id)) {
       // Dekat pemain: item terbang masuk ke inventori
       if (dist < 0.7) {
         const stack=[{...newItem(d.id),count:d.count||1,...(d.dur?{dur:d.dur}:{})}];
@@ -3516,6 +3525,7 @@ let activeStorage = null;
 let catalogPick = null;
 const CATALOG = [...Object.keys(BLOCKS), ...Object.keys(ITEMS)].map(Number).filter(id => ![BEDROCK,WATER,CHEST].includes(id));
 function fillInventory() {
+  if(mode!=='creative')return;
   for (const it of inv) if (it) { it.count = isTool(it.id) ? 1 : STACK; if(isTool(it.id)) it.dur=ITEMS[it.id].uses; }
   const missing = CATALOG.filter(id => !inv.some(it=>it?.id===id));
   for(let i=0;i<inv.length;i++) if(!inv[i] && missing.length) {
@@ -3704,43 +3714,42 @@ function renderStorage() {
   panel.hidden = activeStorage === null;
   document.getElementById('recipes').parentElement.hidden = activeStorage !== null;
   document.getElementById('bagHint').textContent = activeStorage === null
-    ? 'Pilih barang → Pegang untuk guna. Baris atas ialah hotbar. Kutipan tanah perlu slot kosong. Simpan dalam peti atau gunakan Jatuhkan untuk kosongkan slot.'
+    ? '27 slot simpanan + 9 slot hotbar. Ketik barang, kemudian slot destinasi untuk pindah/tukar. Pilih hotbar untuk menentukan objek di tangan.'
     : 'Ketik barang dalam beg untuk simpan; ketik barang dalam peti untuk ambil. Satu timbunan dipindahkan.';
   if (activeStorage !== null) document.getElementById('storageGrid').replaceChildren(...storage[activeStorage].map((it, i) => makeSlot(it, () => moveStorage(storage[activeStorage], i, inv))));
 }
 function renderCatalog() {
-  const panel=document.getElementById('catalogSection');panel.hidden=activeStorage!==null;
-  document.getElementById('catalogHint').textContent=catalogPick===null ? 'Pilih item → pilih slot beg → tekan Pegang. Isi lama slot yang dipilih akan diganti. Blok: 64; alat: 1.' : 'Dipilih: '+info(catalogPick).name+'. Ketik slot beg yang mahu diganti.';
+  const panel=document.getElementById('catalogSection');panel.hidden=activeStorage!==null||mode!=='creative';
+  document.getElementById('catalogHint').textContent=catalogPick===null ? 'Kreatif: pilih item, kemudian slot hotbar. Slot itu menentukan objek di tangan. Blok: 64; alat: 1.' : 'Dipilih: '+info(catalogPick).name+'. Ketik slot hotbar di bawah.';
   document.getElementById('catalogCancel').hidden=catalogPick===null;
   const query=document.getElementById('catalogSearch').value.trim().toLocaleLowerCase('ms-MY');
   document.getElementById('catalogGrid').replaceChildren(...CATALOG.filter(id=>info(id).name.toLocaleLowerCase('ms-MY').includes(query)).map(id=>{
     const b=document.createElement('button');b.type='button';b.className='catalogItem';b.classList.toggle('on',id===catalogPick);b.append(blockIcon(id));const label=document.createElement('span');label.textContent=info(id).name;b.append(label);
-    b.onclick=()=>{catalogPick=id;bagPick=-1;renderBag();document.getElementById('bagHint').textContent='Pilih slot beg untuk '+info(id).name+' (isi lama slot itu akan diganti).';document.getElementById('bagGrid').scrollIntoView({block:'nearest',behavior:'smooth'});};return b;
+    b.onclick=()=>{catalogPick=id;bagPick=-1;renderBag();document.getElementById('bagHint').textContent='Pilih slot hotbar untuk '+info(id).name+'.';document.getElementById('bagHotbar').scrollIntoView({block:'nearest',behavior:'smooth'});};return b;
   }));
 }
 function renderBag() {
-  bagGrid.replaceChildren(...inv.map((it, i) => {
-    const el = makeSlot(it, () => tapBag(i));
-    el.classList.toggle('on', i === bagPick);
-    el.classList.toggle('hot', i < HOT_SIZE);
-    return el;
-  }));
+  const slot=(it,i)=>{const el=makeSlot(it,()=>tapBag(i));el.dataset.slot=i;el.classList.toggle('on',i===bagPick);el.classList.toggle('hot',i<HOT_SIZE);el.classList.toggle('equipped',i===selected);el.title=it?info(it.id).name:'Slot kosong';return el;};
+  bagGrid.replaceChildren(...inv.slice(HOT_SIZE).map((it,i)=>slot(it,i+HOT_SIZE)));
+  document.getElementById('bagHotbar').replaceChildren(...inv.slice(0,HOT_SIZE).map(slot));
   renderRecipes();
   renderStorage();
   renderCatalog();
   const chosen=bagPick>=0?inv[bagPick]:null;
   document.getElementById('bagActions').hidden=activeStorage!==null;
   document.getElementById('equipItem').disabled=!chosen;
-  document.getElementById('dropItem').disabled=!chosen;
+  document.getElementById('dropItem').disabled=!chosen;document.getElementById('dropOne').disabled=!chosen;
   document.getElementById('chosenItem').textContent=chosen ? 'Dipilih: '+info(chosen.id).name+' ×'+chosen.count : 'Ketik barang dalam beg untuk memilih.';
 }
 function tapBag(i) {
-  if (catalogPick !== null && activeStorage === null) {
+  if (catalogPick !== null && activeStorage === null && mode==='creative') {
+    if(i>=HOT_SIZE){document.getElementById('bagHint').textContent='Pilih salah satu daripada 9 slot hotbar di bawah.';return;}
     const id=catalogPick; inv[i]=isTool(id)?{id,count:1,dur:ITEMS[id].uses}:{id,count:STACK};
-    catalogPick=null;bagPick=i;saveDirty=true;renderHotbar();writeSave();return;
+    selected=i;catalogPick=null;bagPick=-1;saveDirty=true;renderHotbar();writeSave();return;
   }
   if (activeStorage !== null) { moveStorage(inv, i, storage[activeStorage]); return; }
   if (bagPick < 0) {
+    if(i<HOT_SIZE){selected=i;saveDirty=true;}
     if (inv[i]) bagPick = i;
   } else if (bagPick === i) {
     bagPick = -1;
@@ -3755,6 +3764,7 @@ function tapBag(i) {
       inv[bagPick] = b;
       inv[i] = a;
     }
+    if(i<HOT_SIZE)selected=i;
     bagPick = -1;
     saveDirty = true;
   }
@@ -3790,20 +3800,24 @@ function applyMode() {
   renderHotbar();
 }
 bagBtn.addEventListener('click', () => { if (playing && !dead) setBag(!bagOpen); });
+function dropFromSlot(i,whole=false) {
+  if(i<0||!inv[i]||dead)return;
+  const item={...inv[i],count:whole?inv[i].count:1};
+  const drop=spawnDrop(player.x-.5,player.y+EYE-.4,player.z-.5,item.id,item);
+  drop.vx=-Math.sin(yaw)*4;drop.vz=-Math.cos(yaw)*4;drop.vy=2;
+  inv[i].count-=item.count;if(inv[i].count===0)inv[i]=null;
+  bagPick=-1;saveDirty=true;renderHotbar();writeSave();
+}
 document.getElementById('equipItem').onclick=()=>{
   if(bagPick<0||!inv[bagPick])return;
   const i=bagPick;
-  if(i<HOT_SIZE)selected=i;else [inv[selected],inv[i]]=[inv[i],inv[selected]];
-  saveDirty=true;renderHotbar();setBag(false);if(!playing)startPlaying();writeSave();
-  showToast('Pegang: '+info(heldId()).name);
+  if(i<HOT_SIZE)selected=i;
+  else {const empty=inv.slice(0,HOT_SIZE).findIndex(it=>!it);const dest=empty>=0?empty:selected;[inv[dest],inv[i]]=[inv[i],inv[dest]];selected=dest;}
+  bagPick=-1;saveDirty=true;renderHotbar();writeSave();
 };
-document.getElementById('dropItem').onclick=()=>{
-  if(bagPick<0||!inv[bagPick])return;
-  const item={...inv[bagPick]};
-  spawnDrop(player.x-.5,player.y+.5,player.z-.5,item.id,item);
-  inv[bagPick]=null;bagPick=-1;saveDirty=true;renderHotbar();writeSave();
-  document.getElementById('chosenItem').textContent='Barang dijatuhkan di kaki. Tutup beg dan dekati untuk kutip semula.';
-};
+document.getElementById('dropOne').onclick=()=>dropFromSlot(bagPick,false);
+document.getElementById('dropItem').onclick=()=>dropFromSlot(bagPick,true);
+document.getElementById('dropHeld').onclick=()=>{if(playing&&!bagOpen)dropFromSlot(selected,false);};
 document.getElementById('catalogSearch').addEventListener('input', renderCatalog);
 document.getElementById('catalogCancel').onclick=()=>{catalogPick=null;renderBag();};
 document.getElementById('fillBag').onclick=()=>{fillInventory();catalogPick=null;renderHotbar();writeSave();};
@@ -4894,6 +4908,7 @@ document.addEventListener('pointerlockchange', () => {
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
   if (!playing) return;
+  if (e.code === 'KeyQ' && !e.repeat && !dead) {e.preventDefault();dropFromSlot(bagOpen?bagPick:selected,e.ctrlKey);return;}
   if (e.code === 'KeyF' && !e.repeat && !bagOpen && !dead) { toggleFlight(); return; }
   if (e.code === 'KeyZ' && !e.repeat) { undo(); return; }
   if (e.code === 'KeyE' && !dead) { if (!e.repeat) setBag(!bagOpen); return; }

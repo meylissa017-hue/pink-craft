@@ -262,8 +262,13 @@
 #craftSection {margin-top:12px;text-align:left;} #craftSection summary {cursor:pointer;padding:12px;background:#ffeeb0;border:3px solid var(--frame);}
 #bag .card > #bagClose {position:sticky;bottom:0;z-index:1;}
 #flyToggle,#flyDown {position:fixed;z-index:3;right:calc(12px + env(safe-area-inset-right));top:calc(68px + env(safe-area-inset-top));padding:10px;border:3px solid #4a1d3a;background:#ffeeb0;color:#4a1d3a;font:inherit;touch-action:none;} #flyDown {top:calc(122px + env(safe-area-inset-top));} #flyToggle[hidden],#flyDown[hidden]{display:none;}
-#undoBtn {left:2px;top:2px;width:48px;height:48px;font-size:20px;background:rgba(190,120,255,.85);} #undoBtn small {font-size:8px;margin-top:0;} #undoBtn.empty {opacity:.4;}
+#undoBtn {left:2px;top:2px;width:48px;height:48px;font-size:20px;background:rgba(190,120,255,.85);} #undoBtn small {font-size:8px;margin-top:0;} #undoBtn.empty {opacity:.4;} #padB {font-size:18px;} #padB small {font-size:8px;line-height:1.05;margin-top:1px;max-width:44px;}
 .lookChoices {display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:8px 0;} #lookName {box-sizing:border-box;width:100%;padding:10px;font:inherit;}
+#bagHotbar {display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:3px;margin:8px 0;padding-top:6px;border-top:3px solid var(--frame);}
+#bagHotbar .slot {background:#f2a9cf;width:100%;max-width:44px;height:auto;aspect-ratio:1;}
+#bagHotbar .equipped {border-color:#fff;box-shadow:0 0 0 2px var(--pink);}
+#dropHeld {position:fixed;z-index:3;left:calc(12px + env(safe-area-inset-left));top:calc(80px + env(safe-area-inset-top));padding:8px;border:3px solid var(--frame);background:#ffeeb0;color:var(--ink);font:inherit;}
+#bag #bagHotbar {grid-template-columns:repeat(9,auto);justify-content:center;gap:4px;} #bag #bagHotbar .slot {width:min(44px,8vw);height:min(44px,8vw);max-width:none;aspect-ratio:auto;}
 </style>
 </head>
 <body>
@@ -287,6 +292,7 @@
   <button id="jump" class="pb">A<small>lompat</small></button>
 </div>
 <button id="flyToggle" hidden>Terbang: OFF</button><button id="flyDown" hidden>Turun ↓</button>
+<button id="dropHeld" aria-label="Jatuhkan satu item di tangan">Jatuh 1</button>
 <button id="bagBtn">Beg</button>
 <button id="menuBtn" aria-label="Menu">&#9776;</button>
 
@@ -297,12 +303,12 @@
       <div>
         <h2>Beg</h2>
         <p id="bagHint">Ketik item, kemudian ketik slot lain untuk pindah. Baris atas ialah hotbar.</p>
-        <div id="bagGrid"></div>
-        <div id="bagActions"><p id="chosenItem" role="status"></p><div class="row"><button id="equipItem" disabled>Pegang</button><button id="dropItem" disabled>Jatuhkan timbunan</button></div><p>Barang di tanah tidak termasuk dalam sandaran dunia. Simpan barang penting dalam peti sebelum keluar.</p></div>
+        <p>Simpanan</p><div id="bagGrid"></div><p>Hotbar · objek di tangan</p><div id="bagHotbar"></div>
+        <div id="bagActions"><p id="chosenItem" role="status"></p><div class="row"><button id="equipItem" disabled>Ke hotbar</button><button id="dropOne" disabled>Jatuh 1</button><button id="dropItem" disabled>Jatuhkan timbunan</button></div><p>Dekati barang di tanah untuk kutip. Beg penuh: simpan dalam peti atau jatuhkan barang. Q: satu item · Ctrl+Q: satu timbunan.</p></div>
       </div>
 
     </div>
-    <div id="catalogSection"><h2>Semua Item</h2><p id="catalogHint"></p>
+    <div id="catalogSection"><h2>Katalog Kreatif</h2><p id="catalogHint"></p>
     <div class="row"><button id="fillBag">Isi Penuh Beg</button><button id="catalogCancel" hidden>Batal Pilihan</button></div>
     <input id="catalogSearch" type="search" placeholder="Cari blok, perabot, makanan, alat..." aria-label="Cari item" autocomplete="off">
     <div id="catalogGrid"></div></div>
