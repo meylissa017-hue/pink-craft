@@ -2518,6 +2518,7 @@ function removeJelly(i, pop) {
   jellies.splice(i, 1);
 }
 function hitJelly(j) {
+  handStrike('chop');
   const dx = j.x - player.x, dz = j.z - player.z, d = Math.hypot(dx, dz) || 1;
   j.hp--;
   j.vx = (dx / d) * 5; j.vz = (dz / d) * 5; j.vy = 5;
@@ -2686,6 +2687,7 @@ function doPlace(sx, sy) {
   if (id === STORAGE && (guest || net.role === 'guest')) { showToast('Bina peti dalam dunia sendiri.'); return; }
   if (id === AIR) { showToast('Slot kosong - pecahkan block untuk kumpul'); return; }
   if (ITEMS[id]) { showToast(ITEMS[id].tool ? 'Ini alat - guna butang pecah pada block' : 'Ini bahan - buka Beg untuk buat sesuatu'); return; }
+  handStrike('place');
   pushUndo(x, y, z, world[idx(x, y, z)], id);
   setBlock(x, y, z, id);
   consumeHeld();
@@ -3430,11 +3432,11 @@ function updateMining(dt) {
   if(key!==mining.key||tool!==mining.tool||mode!==mining.mode){mining.key=key;mining.tool=tool;mining.mode=mode;mining.progress=0;}
   if(mode==='creative'){
     if(mining.tick>0&&!strikeNow)return hit;
-    breakBlock(hit);resetMining();mining.tick=0.2;return null;
+    handStrike('chop');breakBlock(hit);resetMining();mining.tick=0.2;return null;
   }
   mining.progress+=dt/miningSeconds(hit.id);
-  if(mining.progress>=1-1e-9){breakBlock(hit);wearTool();resetMining();return null;}
-  if(mining.tick<=0){beep(150,0.06,'square',0.05);mining.tick=0.28;}
+  if(mining.progress>=1-1e-9){handStrike('chop');breakBlock(hit);wearTool();resetMining();return null;}
+  if(mining.tick<=0){beep(150,0.06,'square',0.05);mining.tick=0.28;handStrike('chop');}
   crack.material.map=crackTextures[Math.min(7,Math.floor(mining.progress*8))];
   crack.position.set(hit.x+0.5,hit.y+0.5,hit.z+0.5);crack.visible=true;
   return hit;
@@ -5354,6 +5356,9 @@ forearm.position.set(.08,-.57,.06);forearm.rotation.z=-.2;handRoot.add(forearm);
 const fist=new THREE.Mesh(new THREE.BoxGeometry(.2,.21,.23),handSkin);
 fist.position.set(.02,-.31,.08);handRoot.add(fist);
 let heldModel=null, shownHeld=-1, handSwing=0, handPhase=0;
+// Hayunan tangan: 'chop' = menetak dari atas ke bawah (pecah block, pukul Jeli), 'place' = menolak ke depan (letak block)
+let strikeT=0, strikeKind='chop';
+function handStrike(kind){strikeT=1;strikeKind=kind;}
 function rebuildHeld(id) {
   if(heldModel){handRoot.remove(heldModel);heldModel.traverse(o=>{o.geometry?.dispose();if(o.material)for(const m of Array.isArray(o.material)?o.material:[o.material]){m.map?.dispose();m.dispose();}});}
   heldModel=new THREE.Group();handRoot.add(heldModel);shownHeld=id;
@@ -5388,8 +5393,14 @@ function renderHand(dt,time) {
   const aspect=canvas.clientWidth/Math.max(1,canvas.clientHeight);
   handCamera.aspect=aspect;handCamera.updateProjectionMatrix();
   const size=aspect<1?.7:1;handRoot.scale.setScalar(size);
-  handRoot.position.set(aspect*.42-Math.sin(handPhase)*.09*handSwing,-.35+(moving?Math.sin(time*8)*.018:0)-Math.abs(Math.sin(handPhase))*.07*handSwing,-2.1);
-  handRoot.rotation.set(-.15*handSwing,0,-.15-Math.sin(handPhase)*.3*handSwing);
+  handRoot.position.set(aspect*.42-Math.sin(handPhase)*.04*handSwing,-.35+(moving?Math.sin(time*8)*.018:0)-Math.abs(Math.sin(handPhase))*.07*handSwing,-2.1);
+  handRoot.rotation.set(-.15*handSwing,0,-.15-Math.sin(handPhase)*.12*handSwing);
+  if(strikeT>0){
+    strikeT=Math.max(0,strikeT-dt/(strikeKind==='chop'?.26:.2));
+    const arc=Math.sin((1-strikeT)*Math.PI), tool=ITEMS[shownHeld]?.tool?1:.6;
+    if(strikeKind==='chop'){handRoot.rotation.x-=arc*.95*tool;handRoot.rotation.z+=arc*.25*tool;handRoot.position.y-=arc*.16*tool;handRoot.position.z-=arc*.3*tool;handRoot.position.x-=arc*.12*tool;}
+    else{handRoot.position.z-=arc*.45;handRoot.position.y+=arc*.04;handRoot.rotation.x-=arc*.3;}
+  }
   const auto=renderer.autoClear;renderer.autoClear=false;renderer.clearDepth();renderer.render(handScene,handCamera);renderer.autoClear=auto;
 }
 function frame(now) {
@@ -5454,7 +5465,7 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // Untuk ujian dari konsol
-window.__pink = { undo, undoStack, ghost, get nature() { return { petals: petalPos.filter((v, i) => i % 3 === 1 && v > -50).length, flies: flies.visible, stars: starMats[0].opacity, glow: sunGlow.material.opacity, sea: seaLevel, time: timeUniform.value }; }, player, mobs, world, getBlock, setBlock, doPlace, breakBlock, get treasures() { return treasures; }, mining, inv, drops, addItem, heldId, RECIPES, craft, ITEMS, renderHotbar, damage, renderStats,
+window.__pink = { handStrike, get strikeT() { return strikeT; }, set strikeT(v) { strikeT = v; }, undo, undoStack, ghost, get nature() { return { petals: petalPos.filter((v, i) => i % 3 === 1 && v > -50).length, flies: flies.visible, stars: starMats[0].opacity, glow: sunGlow.material.opacity, sea: seaLevel, time: timeUniform.value }; }, player, mobs, world, getBlock, setBlock, doPlace, breakBlock, get treasures() { return treasures; }, mining, inv, drops, addItem, heldId, RECIPES, craft, ITEMS, renderHotbar, damage, renderStats,
   get health() { return health; }, set health(v) { health = v; },
   get hunger() { return hunger; }, set hunger(v) { hunger = v; },
   get dead() { return dead; }, jellies, lightAt, villagers, rides, rideSeats, boardSeat, stopRide, useShop, greet, get seatRide() { return seatRide; }, startRace, startSeek, startMatch, stopMini, best, get mini() { return mini; }, sprouts, plantSeed, tameCritter, earned, award, look: myLook, sleepInBed, launchFirework, rockets, sparks, parkSites, houseSites, houseVersion, net, avatars, netHost, netJoin, netLeave, guest, critters, GEN, UPGRADED, kickBall, interact, weather, setRain,
@@ -5462,7 +5473,7 @@ window.__pink = { undo, undoStack, ghost, get nature() { return { petals: petalP
   get ball() { return ball; }, get riding() { return riding; }, get goals() { return goals; }, get consoleMode() { return consoleMode; },
   get dayTime() { return dayTime; }, set dayTime(v) { dayTime = v; }, get daylight() { return daylight; },
   // Gambar dunia 3D sahaja (tanpa butang), untuk semakan rupa
-  shot: () => { renderer.render(scene, camera); return canvas.toDataURL('image/jpeg', 0.7); }, get mode() { return mode; }, surfaceY, startPlaying, selectSlot, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, get pitch() { return pitch; }, set pitch(v) { pitch = v; } };
+  shot: () => { renderer.render(scene, camera); renderHand(0, performance.now() / 1000); return canvas.toDataURL('image/jpeg', 0.7); }, get mode() { return mode; }, surfaceY, startPlaying, selectSlot, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, get pitch() { return pitch; }, set pitch(v) { pitch = v; } };
 
 
 // ---------- Peta dan sandaran dunia ----------
