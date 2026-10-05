@@ -604,7 +604,8 @@ const CAVE_ZONE = { x0: 166, x1: 176, z0: 46, z1: 56, y: 20 };
 const CAVE = { x: 171, y: 9, z: 86, rx: 13, ry: 6, rz: 12, floor: 5 };
 // Pulau Rumah Api di tengah laut, di selatan dunia asal
 const ISLAND = { x: 7, z: 132, r: 7 };
-const NEW_ZONES = [WATER_ZONE, VILLAGE_ZONE, THEME_ZONE, CAVE_ZONE];
+const CAT_ZONE = { x0: 102, x1: 116, z0: 70, z1: 84, y: 17 }; // Taman Kucing, di timur rumah Alisa
+const NEW_ZONES = [WATER_ZONE, VILLAGE_ZONE, THEME_ZONE, CAVE_ZONE, CAT_ZONE];
 const ALL_ZONES = ZONES.concat(NEW_ZONES);
 const inOldWorld = (x, z) => x < OW && z < OD;
 // Tema tanah baru: pink dan hijau alam bersama. Dunia asal kekal pink.
@@ -697,9 +698,53 @@ function generateWorld(seed) {
   buildVillage();
   buildThemePark();
   buildCave(seed);
+  buildCatPark();
   if (GEN === 2) buildIsland();
   generateOres(seed);
   placeChests(seed);
+}
+// Taman Kucing: taman berpagar dengan pondok kucing, tiang panjat, katil permaidani dan kolam minum
+function buildCatPark() {
+  const zn = CAT_ZONE, f = zn.y, gz = 77;
+  fillBox(zn.x0, f + 1, zn.z0, zn.x1, f + 12, zn.z1, AIR);
+  fillBox(zn.x0, f, zn.z0, zn.x1, f, zn.z1, GRASS_G);
+  // Pagar keliling; pintu gerbang di sebelah barat, menghadap rumah
+  fillBox(zn.x0, f + 1, zn.z0, zn.x1, f + 1, zn.z0, FENCE);
+  fillBox(zn.x0, f + 1, zn.z1, zn.x1, f + 1, zn.z1, FENCE);
+  fillBox(zn.x0, f + 1, zn.z0, zn.x0, f + 1, zn.z1, FENCE);
+  fillBox(zn.x1, f + 1, zn.z0, zn.x1, f + 1, zn.z1, FENCE);
+  fillBox(zn.x0, f + 1, gz - 1, zn.x0, f + 1, gz + 1, AIR);
+  fillBox(zn.x0, f + 1, gz - 2, zn.x0, f + 4, gz - 2, YELLOW);
+  fillBox(zn.x0, f + 1, gz + 2, zn.x0, f + 4, gz + 2, YELLOW);
+  fillBox(zn.x0, f + 5, gz - 2, zn.x0, f + 5, gz + 2, RAINBOW);
+  // Laluan bersilang
+  fillBox(zn.x0, f, gz, zn.x1 - 2, f, gz, CANDY);
+  fillBox(109, f, zn.z0 + 2, 109, f, zn.z1 - 2, CANDY);
+  // Pondok kucing: bilik kecil satu petak dengan pintu rendah
+  const hut = (x, z, wall, roof, doorZ) => {
+    fillBox(x, f, z, x + 2, f, z + 2, PLANKS);
+    fillBox(x, f + 1, z, x + 2, f + 2, z + 2, wall);
+    fillBox(x + 1, f + 1, z + 1, x + 1, f + 2, z + 1, AIR);
+    world[idx(x + 1, f + 1, doorZ)] = AIR;
+    fillBox(x, f + 3, z, x + 2, f + 3, z + 2, roof);
+    world[idx(x + 1, f + 4, z + 1)] = roof;
+  };
+  hut(104, 72, BRICK, HEART, 74);
+  hut(112, 80, PLANKS, RAINBOW, 80);
+  // Kolam minum
+  fillBox(111, f, 72, 114, f, 75, BLUE);
+  fillBox(112, f, 73, 113, f, 74, WATER);
+  // Tiang panjat dengan pelantar
+  fillBox(105, f + 1, 81, 105, f + 3, 81, LOG);
+  fillBox(104, f + 4, 80, 106, f + 4, 82, PLANKS);
+  world[idx(107, f + 1, 79)] = LOG;
+  world[idx(107, f + 2, 79)] = PLANKS;
+  // Katil permaidani, bangku, bunga dan lampu
+  for (const [x, z] of [[107, 72], [103, 75], [114, 78], [111, 83]]) world[idx(x, f + 1, z)] = RUG;
+  world[idx(110, f + 1, 79)] = SOFA;
+  for (const [x, z] of [[103, 71], [115, 71], [103, 83], [115, 83], [108, 76], [110, 78]]) world[idx(x, f + 1, z)] = FLOWERS;
+  lampPost(108, f, 78, LINE);
+  lampPost(110, f, 76, LINE);
 }
 // Taman Tema Air: kolam besar, kolam kanak-kanak dengan air pancut, menara dengan dua gelongsor ke dalam kolam,
 // papan anjal, payung, dan pintu gerbang di sebelah selatan
@@ -2246,6 +2291,13 @@ function beep(freq, dur, type, vol) {
   } catch (e) { /* tiada audio: game tetap jalan senyap */ }
 }
 
+function meow() {
+  const base = 520 + Math.random() * 240;
+  beep(base, 0.1, 'triangle', 0.07);
+  setTimeout(() => beep(base * 1.45, 0.12, 'triangle', 0.07), 80);
+  setTimeout(() => beep(base * 0.9, 0.18, 'triangle', 0.05), 190);
+}
+
 // ---------- Pinky ----------
 const PINK = 0xffa6d5, PINK_DARK = 0xff7fbf;
 const mobMat = new THREE.MeshBasicMaterial({ vertexColors: true });
@@ -2820,6 +2872,7 @@ function interact(res) {
     else if (m.def && m.def.likes && !m.tame && m.def.likes(heldId())) tameCritter(m);
     else {
       pet(m);
+      if (m.def && m.def.cat) meow();
       if (!m.isPinky) {
         award('usap');
         if (m.def.likes && !m.tame) showToast(m.def.likeText);
@@ -2845,6 +2898,14 @@ const CRITTER = {
   butterfly: { fly: true },
   fish: { swim: true },
 };
+// Kucing Taman Kucing: [badan, telinga dan ekor, kaki dan muncung, mata, tompok]
+const CAT_COATS = [
+  [0xffb347, 0xff9a3c, 0xffffff], [0xa9a7b8, 0x7f7c92, 0xffffff], [0x4b4254, 0x332c3a, 0xffffff, 0x7ed957],
+  [0xfffaf5, 0xf2d9e6, 0xffffff], [0xb98058, 0x8e5a38, 0xf3dfc9], [0xf7deb0, 0xe2bd7d, 0xffffff],
+  [0xffa6d5, 0xff7fbf, 0xffffff], [0xc9a6ff, 0xa47be8, 0xffffff], [0xfffaf5, 0xf6a14a, 0xffffff, 0x3a2460, [0xf6a14a, 0x4b4254]],
+];
+CRITTER.kitten.cat = true;
+CAT_COATS.forEach((coat, i) => { CRITTER['cat' + i] = { ...CRITTER.kitten, leash: 6, coat }; });
 const WING_COLORS = [0xff7fbf, 0xffe14f, 0x6fb7ff, 0xc58cff];
 const DARK = 0x3a2460;
 function part(parent, w, h, d, hex, x, y, z) {
@@ -2893,17 +2954,24 @@ function makeCritterModel(kind) {
       inner.add(pivot);
       return pivot;
     });
-  } else if (kind === 'kitten') {
-    part(inner, 4, 4, 7, 0xffb347, 0, 3.5, 0);
-    part(inner, 4, 4, 4, 0xffb347, 0, 6.5, 4);
-    part(inner, 1.2, 1.5, 1, 0xff9a3c, -1.2, 9.2, 4.5);
-    part(inner, 1.2, 1.5, 1, 0xff9a3c, 1.2, 9.2, 4.5);
-    part(inner, 1, 4, 1, 0xff9a3c, 0, 6.5, -3.5);
-    part(inner, 0.7, 0.9, 0.4, DARK, -1, 7.1, 6.05);
-    part(inner, 0.7, 0.9, 0.4, DARK, 1, 7.1, 6.05);
+  } else if (CRITTER[kind].cat) {
+    const coat = CRITTER[kind].coat, [body, dark, paw, eye = DARK, patches] = coat || CAT_COATS[0];
+    if (coat) inner.scale.setScalar(1 / 13); // kucing dewasa besar sikit daripada anak kucing
+    part(inner, 4, 4, 7, body, 0, 3.5, 0);
+    part(inner, 4, 4, 4, body, 0, 6.5, 4);
+    part(inner, 1.2, 1.5, 1, dark, -1.2, 9.2, 4.5);
+    part(inner, 1.2, 1.5, 1, dark, 1.2, 9.2, 4.5);
+    part(inner, 1, 4, 1, dark, 0, 6.5, -3.5);
+    part(inner, 0.7, 0.9, 0.4, eye, -1, 7.1, 6.05);
+    part(inner, 0.7, 0.9, 0.4, eye, 1, 7.1, 6.05);
     part(inner, 0.9, 0.6, 0.4, 0xff7fbf, 0, 6.1, 6.05);
-    part(inner, 2.4, 1.6, 0.4, 0xffffff, 0, 5.2, 6.02);
-    for (const [x, z] of [[-1.2, 2.5], [1.2, 2.5], [-1.2, -2.5], [1.2, -2.5]]) part(inner, 1, 1.5, 1, 0xffffff, x, 0.75, z);
+    part(inner, 2.4, 1.6, 0.4, paw, 0, 5.2, 6.02);
+    for (const [x, z] of [[-1.2, 2.5], [1.2, 2.5], [-1.2, -2.5], [1.2, -2.5]]) part(inner, 1, 1.5, 1, paw, x, 0.75, z);
+    if (patches) {
+      part(inner, 2.4, 1.2, 3, patches[0], -0.9, 5, -1);
+      part(inner, 2.2, 1.2, 2.2, patches[1], 1, 8, 4.6);
+      part(inner, 1.6, 2, 2.4, patches[1], 1.3, 3.6, 1.6);
+    }
   } else if (kind === 'puppy') {
     part(inner, 5, 4.5, 7, 0xc98a5a, 0, 4, 0);
     part(inner, 4.5, 4.5, 4.5, 0xc98a5a, 0, 7, 4.2);
@@ -2975,6 +3043,20 @@ if (houseSites.length === 2 && houseVersion === HOUSE_V) {
   [['kitten', houseSites[0]], ['puppy', houseSites[1]]].forEach(([kind, site]) => {
     if (!savedPets.some((s) => s[0] === kind)) spawnCritter(kind, site[0] + 5.5, site[1] + 1, site[2] + 5.5);
   });
+}
+// Taman Kucing: 14 ekor kucing pelbagai warna. Yang sudah dijinakkan ikut tuannya, jadi tidak dijana semula di taman.
+{
+  const rnd = mulberry32(save.seed + 77), gone = {};
+  for (const s of savedPets) gone[s[0]] = (gone[s[0]] || 0) + 1;
+  for (let i = 0; i < 14; i++) {
+    const kind = 'cat' + (i % CAT_COATS.length);
+    let x = 0, z = 0, tries = 0;
+    do {
+      x = CAT_ZONE.x0 + 1 + Math.floor(rnd() * 13); z = CAT_ZONE.z0 + 1 + Math.floor(rnd() * 13);
+    } while (++tries < 20 && (world[idx(x, CAT_ZONE.y + 1, z)] !== AIR || world[idx(x, CAT_ZONE.y, z)] === WATER || world[idx(x, CAT_ZONE.y, z)] === AIR));
+    if (gone[kind] > 0) { gone[kind]--; continue; }
+    spawnCritter(kind, x + 0.5, CAT_ZONE.y + 1, z + 0.5);
+  }
 }
 
 function updateCritter(c, dt, time) {
@@ -3124,6 +3206,7 @@ addSign('Kampung Ceria', 4.6, 1.44, 127.5, VILLAGE_ZONE.y + 5.5, 99.96, Math.PI)
 addSign('Kedai Aiskrim', 4, 1.25, 127.5, VILLAGE_ZONE.y + 4.5, 126.96, Math.PI);
 addSign('Taman Tema', 4.6, 1.44, 67.5, THEME_ZONE.y + 5.5, 111.96, Math.PI);
 addSign('Gua Kristal', 4, 1.25, 171.5, CAVE_ZONE.y + 5.5, 55.96, Math.PI);
+addSign('Taman Kucing', 3.6, 1.12, CAT_ZONE.x0 - 0.04, CAT_ZONE.y + 5.5, 77.5, -Math.PI / 2);
 // Papan rumah api menghadap timur, ke arah tanah besar
 if (GEN === 2) addSign('Pulau Rumah Api', 3.6, 1.12, ISLAND.x + 3.04, SEA_LEVEL + 6, ISLAND.z + 0.5, Math.PI / 2);
 addSign('Taman Tema Air', 4.6, 1.44, 129.5, WATER_ZONE.y + 5.5, WATER_ZONE.z1 + 1.04);
@@ -3995,6 +4078,7 @@ const STICKERS = [
   { id: 'penduduk', icon: '\u{1F44B}', name: 'Hai Jiran!', hint: 'Sapa penduduk Kampung Ceria' },
   { id: 'gua', icon: '\u{1F52E}', name: 'Penjelajah Gua', hint: 'Masuk ke Gua Kristal' },
   { id: 'pulau', icon: '\u{1F3DD}\uFE0F', name: 'Sampai ke Pulau', hint: 'Jejak kaki di Pulau Rumah Api' },
+  { id: 'kucing', icon: '\u{1F431}', name: 'Kawan Kucing', hint: 'Lawat Taman Kucing' },
 ];
 const FURNITURE = new Set([BED_HEAD, BED_FOOT, SOFA, TABLE, TV, KITCHEN, WARDROBE, SHELF, RUG, PAINT_PINKY, PAINT_RAINBOW, FLOWERS, FENCE]);
 const earned = new Set(Array.isArray(save.stickers) ? save.stickers.filter((id) => STICKERS.some((st) => st.id === id)) : []);
@@ -4799,6 +4883,7 @@ function updateParks(dt) {
   // Pelekat tempat: dalam gua, dan di atas pulau
   if (player.y < CAVE.y + CAVE.ry && ((player.x - CAVE.x) / CAVE.rx) ** 2 + ((player.z - CAVE.z) / CAVE.rz) ** 2 < 1) award('gua');
   if (GEN === 2 && player.y > SEA_LEVEL + 1 && Math.hypot(player.x - ISLAND.x - 0.5, player.z - ISLAND.z - 0.5) < ISLAND.r) award('pulau');
+  if (zoneDist(CAT_ZONE, player.x, player.z) === 0 && Math.abs(player.y - CAT_ZONE.y - 1) < 4) award('kucing');
   for (const v of villagers) updateVillager(v, dt);
 }
 
@@ -5465,7 +5550,7 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // Untuk ujian dari konsol
-window.__pink = { handStrike, get strikeT() { return strikeT; }, set strikeT(v) { strikeT = v; }, undo, undoStack, ghost, get nature() { return { petals: petalPos.filter((v, i) => i % 3 === 1 && v > -50).length, flies: flies.visible, stars: starMats[0].opacity, glow: sunGlow.material.opacity, sea: seaLevel, time: timeUniform.value }; }, player, mobs, world, getBlock, setBlock, doPlace, breakBlock, get treasures() { return treasures; }, mining, inv, drops, addItem, heldId, RECIPES, craft, ITEMS, renderHotbar, damage, renderStats,
+window.__pink = { CAT_ZONE, handStrike, get strikeT() { return strikeT; }, set strikeT(v) { strikeT = v; }, undo, undoStack, ghost, get nature() { return { petals: petalPos.filter((v, i) => i % 3 === 1 && v > -50).length, flies: flies.visible, stars: starMats[0].opacity, glow: sunGlow.material.opacity, sea: seaLevel, time: timeUniform.value }; }, player, mobs, world, getBlock, setBlock, doPlace, breakBlock, get treasures() { return treasures; }, mining, inv, drops, addItem, heldId, RECIPES, craft, ITEMS, renderHotbar, damage, renderStats,
   get health() { return health; }, set health(v) { health = v; },
   get hunger() { return hunger; }, set hunger(v) { hunger = v; },
   get dead() { return dead; }, jellies, lightAt, villagers, rides, rideSeats, boardSeat, stopRide, useShop, greet, get seatRide() { return seatRide; }, startRace, startSeek, startMatch, stopMini, best, get mini() { return mini; }, sprouts, plantSeed, tameCritter, earned, award, look: myLook, sleepInBed, launchFirework, rockets, sparks, parkSites, houseSites, houseVersion, net, avatars, netHost, netJoin, netLeave, guest, critters, GEN, UPGRADED, kickBall, interact, weather, setRain,
